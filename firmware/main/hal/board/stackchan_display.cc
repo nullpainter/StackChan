@@ -6,10 +6,12 @@
 #include "stackchan_display.h"
 #include <esp_log.h>
 #include <esp_err.h>
+#include <esp_system.h>
 #include <esp_lvgl_port.h>
 #include <esp_psram.h>
 #include <vector>
 #include <cstring>
+#include <array>
 #include <src/misc/cache/lv_cache.h>
 #include <settings.h>
 #include <lvgl.h>
@@ -22,6 +24,31 @@ using namespace stackchan;
 using namespace stackchan::avatar;
 
 #define TAG "StackChanAvatarDisplay"
+
+namespace {
+struct SpeakingMotionPreset {
+    uint32_t mouth_interval_ms;
+    uint32_t motion_interval_min_ms;
+    uint32_t motion_interval_max_ms;
+    bool enable_head_motion;
+};
+
+SpeakingMotionPreset getSpeakingMotionPreset(uint8_t level)
+{
+    // Reuse existing Xiaozhi levels: Off/Low/Medium/High
+    static constexpr std::array<SpeakingMotionPreset, 4> kPresets = {{
+        {220, 2200, 3200, false},  // Off: keep mouth only, disable head motion
+        {200, 1800, 2600, true},   // Low
+        {180, 1400, 2200, true},   // Medium
+        {150, 900, 1600, true},    // High
+    }};
+
+    if (level >= kPresets.size()) {
+        level = 2;
+    }
+    return kPresets[level];
+}
+}  // namespace
 
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
@@ -179,6 +206,55 @@ StackChanAvatarDisplay::StackChanAvatarDisplay(esp_lcd_panel_io_handle_t panel_i
     };
     esp_timer_create(&preview_timer_args, &preview_timer_);
 
+    // Create a timer for speaking LED pixel effect (aqua base + blue highlights).
+    esp_timer_create_args_t audio_loudness_timer_args = {
+        .callback =
+            [](void* arg) {
+                auto* display = static_cast<StackChanAvatarDisplay*>(arg);
+                if (!display->is_speaking_) {
+                    return;
+                }
+
+                constexpr uint8_t step = 20;
+                if (display->speaking_led_rising_) {
+                    const int next               = display->speaking_led_level_ + step;
+                    display->speaking_led_level_ = next >= 255 ? 255 : next;
+                    if (display->speaking_led_level_ >= 255) {
+                        display->speaking_led_rising_ = false;
+                    }
+                } else {
+                    const int next               = display->speaking_led_level_ - step;
+                    display->speaking_led_level_ = next <= 0 ? 0 : next;
+                    if (display->speaking_led_level_ == 0) {
+                        display->speaking_led_rising_ = true;
+                    }
+                }
+
+                // Keep blue full, but clamp aqua/green channel to half-brightness max.
+                const uint8_t green_highlight = static_cast<uint8_t>(128 - (display->speaking_led_level_ / 2));
+                const uint8_t on_threshold    = static_cast<uint8_t>(60 + (display->speaking_led_level_ * 140) / 255);
+
+                constexpr uint8_t kLedCount = 12;
+                for (uint8_t i = 0; i < kLedCount; ++i) {
+                    const bool is_highlight = static_cast<uint8_t>(esp_random() & 0xFF) < on_threshold;
+                    if (is_highlight) {
+                        // "On" pixel: voice-modulated blue blend.
+                        GetHAL().setRgbColor(i, 0, green_highlight, 255);
+                    } else {
+                        // "Off" pixel: dim aqua baseline.
+                        GetHAL().setRgbColor(i, 0, 64, 64);
+                    }
+                }
+                GetHAL().refreshRgb();
+            },
+        .arg                   = this,
+        .dispatch_method       = ESP_TIMER_TASK,
+        .name                  = "audio_loudness_timer",
+        .skip_unhandled_events = false,
+    };
+    esp_timer_create(&audio_loudness_timer_args, &audio_loudness_timer_);
+    esp_timer_start_periodic(audio_loudness_timer_, 80 * 1000);
+
     // Create boot logo label if not warm boot
     if (GetHAL().getWarmRebootTarget() < 0) {
         ESP_LOGI(TAG, "Create boot logo label");
@@ -201,6 +277,11 @@ StackChanAvatarDisplay::~StackChanAvatarDisplay()
     if (preview_timer_ != nullptr) {
         esp_timer_stop(preview_timer_);
         esp_timer_delete(preview_timer_);
+    }
+
+    if (audio_loudness_timer_ != nullptr) {
+        esp_timer_stop(audio_loudness_timer_);
+        esp_timer_delete(audio_loudness_timer_);
     }
 
     if (preview_image_ != nullptr) {
@@ -271,6 +352,37 @@ void StackChanAvatarDisplay::SetupUI()
     blink_modifier_id_ = stackchan.addModifier(std::make_unique<BlinkModifier>());
     stackchan.addModifier(std::make_unique<HeadPetModifier>());
     stackchan.addModifier(std::make_unique<ImuEventModifier>());
+
+    if (!head_tap_control_bound_) {
+        head_tap_control_bound_ = true;
+
+        GetHAL().onHeadPetGesture.connect([&](HeadPetGesture gesture) {
+            if (gesture != HeadPetGesture::Press) {
+                return;
+            }
+
+            const uint32_t now = GetHAL().millis();
+
+            // Reject sensor bounce.
+            if (now - last_head_tap_tick_ < kHeadTapDebounceMs) {
+                return;
+            }
+
+            // Second tap inside the window: leave the conversation entirely.
+            if (last_head_tap_tick_ != 0 && now - last_head_tap_tick_ <= kHeadDoubleTapWindowMs) {
+                last_head_tap_tick_ = 0;
+                hal_bridge::exit_xiaozhi_chat_mode();
+                return;
+            }
+
+            last_head_tap_tick_ = now;
+
+            // First tap: interrupt her mid-sentence, stay in the conversation.
+            if (is_speaking_) {
+                hal_bridge::toggle_xiaozhi_chat_state();
+            }
+        });
+    }
 
     preview_image_ = lv_image_create(lv_screen_active());
     lv_obj_set_size(preview_image_, 320, 240);
@@ -393,11 +505,8 @@ void StackChanAvatarDisplay::SetChatMessage(const char* role, const char* conten
 
     DisplayLockGuard lock(this);
 
-    if (strcmp(role, "system") == 0) {
-        stackchan.avatar().setSpeech(content);
-    } else if (strcmp(role, "assistant") == 0) {
-        stackchan.avatar().setSpeech(content);
-    }
+    // Disable chat speech bubbles. Keep the bubble area cleared while chatting.
+    stackchan.avatar().clearSpeech();
 }
 
 void StackChanAvatarDisplay::ClearChatMessages()
@@ -488,23 +597,38 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
     }
 
     auto& avatar = stackchan.avatar();
-    auto& motion = stackchan.motion();
 
     DisplayLockGuard lock(this);
 
-    bool is_idle      = false;
-    bool is_listening = false;
+    bool is_idle = false;
 
     if (strcmp(status, Lang::Strings::LISTENING) == 0) {
         if (speaking_modifier_id_ >= 0) {
-            // Start speaking
+            // Stop speaking
             stackchan.removeModifier(speaking_modifier_id_);
             avatar.mouth().setWeight(0);
             speaking_modifier_id_ = -1;
+            is_speaking_          = false;
+        }
+        speaking_led_level_  = 0;
+        speaking_led_rising_ = true;
+
+        // Add listening motion based on frequency slider setting
+        if (listening_motion_modifier_id_ < 0) {
+            const auto config             = hal_bridge::get_xiaozhi_config();
+            const auto preset             = getSpeakingMotionPreset(config.idleRandomMovementLevel);
+            listening_motion_modifier_id_ = stackchan.addModifier(
+                std::make_unique<IdleMotionModifier>(preset.motion_interval_min_ms, preset.motion_interval_max_ms));
         }
 
-        GetHAL().setRgbColor(0, 0, 50, 0);
-        GetHAL().refreshRgb();
+        float target_x = 0.0f;
+        float target_y = 0.0f;
+        if (GetHAL().getConversationTarget(target_x, target_y)) {
+            stackchan.motion().lookAtNormalized(target_x, target_y, 200);
+        }
+
+        // Solid dim aqua on both strips while listening.
+        GetHAL().showRgbColor(0, 64, 64);
 
     } else if (strcmp(status, Lang::Strings::STANDBY) == 0) {
         _is_xiaozhi_ready = true;
@@ -514,50 +638,77 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
             stackchan.removeModifier(speaking_modifier_id_);
             avatar.mouth().setWeight(0);
             speaking_modifier_id_ = -1;
+            is_speaking_          = false;
+        }
+        speaking_led_level_  = 0;
+        speaking_led_rising_ = true;
+
+        // Also remove listening motion when going to standby/idle
+        if (listening_motion_modifier_id_ >= 0) {
+            stackchan.removeModifier(listening_motion_modifier_id_);
+            listening_motion_modifier_id_ = -1;
         }
 
         is_idle = true;
 
-        GetHAL().setRgbColor(0, 0, 0, 0);
-        GetHAL().refreshRgb();
+        GetHAL().showRgbColor(0, 0, 0);
 
     } else if (strcmp(status, Lang::Strings::SPEAKING) == 0) {
-        if (speaking_modifier_id_ < 0) {
-            speaking_modifier_id_ = stackchan.addModifier(std::make_unique<SpeakingModifier>(0, 180, false));
+        // Remove listening motion when speaking
+        if (listening_motion_modifier_id_ >= 0) {
+            stackchan.removeModifier(listening_motion_modifier_id_);
+            listening_motion_modifier_id_ = -1;
         }
 
-        GetHAL().setRgbColor(0, 0, 0, 50);
-        GetHAL().refreshRgb();
+        if (speaking_modifier_id_ < 0) {
+            const auto config = hal_bridge::get_xiaozhi_config();
+            const auto preset = getSpeakingMotionPreset(config.idleRandomMovementLevel);
+
+            speaking_modifier_id_ = stackchan.addModifier(
+                std::make_unique<SpeakingModifier>(0, preset.mouth_interval_ms, preset.enable_head_motion,
+                                                   preset.motion_interval_min_ms, preset.motion_interval_max_ms));
+        }
+
+        float target_x = 0.0f;
+        float target_y = 0.0f;
+        if (GetHAL().getConversationTarget(target_x, target_y)) {
+            stackchan.motion().lookAtNormalized(target_x, target_y, 180);
+        }
+
+        is_speaking_         = true;
+        speaking_led_level_  = 0;
+        speaking_led_rising_ = true;
+        // Start with dim aqua baseline; speaking highlights keep full blue.
+        GetHAL().showRgbColor(0, 64, 64);
     } else {
         avatar.setSpeech(status);
     }
 
     if (is_idle) {
-        // Start idle motion
-        ESP_LOGW(TAG, "Start idle motion");
-        if (idle_motion_modifier_id_ < 0) {
-            if (idle_motion_level_ > 0) {
-                CreateIdleMotionModifier();
-            }
+        // Keep idle expressions, but disable servo movement while idle.
+        ESP_LOGW(TAG, "Idle state: servo movement disabled");
+        if (idle_expression_modifier_id_ < 0) {
             idle_expression_modifier_id_ = stackchan.addModifier(std::make_unique<IdleExpressionModifier>());
+        }
+        // Also remove listening motion when going to idle
+        if (listening_motion_modifier_id_ >= 0) {
+            stackchan.removeModifier(listening_motion_modifier_id_);
+            listening_motion_modifier_id_ = -1;
         }
 
         _is_xiaozhi_idle = true;
     } else {
-        // Stop idle motion
-        ESP_LOGW(TAG, "Stop idle motion");
+        // Ensure idle modifiers are removed while not idle.
+        ESP_LOGW(TAG, "Leave idle state");
         if (idle_motion_modifier_id_ >= 0) {
             stackchan.removeModifier(idle_motion_modifier_id_);
             idle_motion_modifier_id_ = -1;
+        }
+
+        if (idle_expression_modifier_id_ >= 0) {
             stackchan.removeModifier(idle_expression_modifier_id_);
             idle_expression_modifier_id_ = -1;
         }
-
-        // if (!is_listening) {
-        //     // Return to default pose
-        //     motion.pitchServo().moveWithSpeed(200, 350);
-        //     motion.yawServo().moveWithSpeed(0, 350);
-        // }
 
         _is_xiaozhi_idle = false;
     }

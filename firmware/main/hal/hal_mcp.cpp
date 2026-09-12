@@ -92,6 +92,35 @@ void Hal::xiaozhi_mcp_init()
             return true;
         });
 
+    mclog::tagInfo(_tag, "add robot.set_conversation_target tool");
+    mcp_server.AddTool("self.robot.set_conversation_target",
+                       "Set conversational gaze target using normalized camera-space coordinates. "
+                       "x/y range: -1.0 to 1.0, where (0,0) is center. "
+                       "This anchor is used while listening/speaking and expires automatically.",
+                       PropertyList({Property("x", kPropertyTypeInteger, 0, -1000, 1000),
+                                     Property("y", kPropertyTypeInteger, 0, -1000, 1000),
+                                     Property("ttl_ms", kPropertyTypeInteger, 3000, 200, 15000)}),
+                       [this](const PropertyList& properties) -> ReturnValue {
+                           // Use milli-normalized integers to keep compatibility with integer-only MCP properties.
+                           float x    = static_cast<float>(properties["x"].value<int>()) / 1000.0f;
+                           float y    = static_cast<float>(properties["y"].value<int>()) / 1000.0f;
+                           int ttl_ms = properties["ttl_ms"].value<int>();
+
+                           GetHAL().setConversationTarget(x, y, static_cast<uint32_t>(ttl_ms));
+
+                           mclog::tagInfo(_tag, "set_conversation_target: x={}, y={}, ttl_ms={}", x, y, ttl_ms);
+                           return true;
+                       });
+
+    mclog::tagInfo(_tag, "add robot.clear_conversation_target tool");
+    mcp_server.AddTool("self.robot.clear_conversation_target", "Clear conversational gaze anchor.",
+                       std::vector<Property>{}, [this](const PropertyList& properties) -> ReturnValue {
+                           (void)properties;
+                           GetHAL().clearConversationTarget();
+                           mclog::tagInfo(_tag, "clear_conversation_target");
+                           return true;
+                       });
+
     mclog::tagInfo(_tag, "add robot.create_reminder tool");
     mcp_server.AddTool("self.robot.create_reminder",
                        "Create a reminder. Duration is in seconds. Message is what to say when time is up. Set repeat "

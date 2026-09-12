@@ -303,6 +303,11 @@ public:
     }
 
 private:
+    esp_err_t TryReadRegs(uint8_t reg, uint8_t* buffer, size_t length, int timeout_ms = 100)
+    {
+        return i2c_master_transmit_receive(i2c_device_, &reg, 1, buffer, length, timeout_ms);
+    }
+
     uint8_t* read_buffer_ = nullptr;
     TouchPoint_t tp_;
     int64_t last_error_log_us_     = 0;
@@ -720,6 +725,15 @@ uint8_t hal_bridge::board_get_backlight_brightness()
     }
 }
 
+int hal_bridge::board_sample_ambient_luma()
+{
+    auto camera = board_get_camera();
+    if (camera == nullptr) {
+        return -1;
+    }
+    return camera->SampleAmbientLuma();
+}
+
 void hal_bridge::board_set_speaker_volume(uint8_t volume, bool permanent)
 {
     auto& board      = Board::GetInstance();
@@ -755,4 +769,13 @@ void hal_bridge::toggle_xiaozhi_chat_state()
         return;
     }
     app.ToggleChatState();
+}
+
+void hal_bridge::exit_xiaozhi_chat_mode()
+{
+    auto& app = Application::GetInstance();
+    if (app.GetDeviceState() == kDeviceStateStarting) {
+        return;
+    }
+    app.ExitChatMode();
 }

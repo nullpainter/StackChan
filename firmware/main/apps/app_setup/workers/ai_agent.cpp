@@ -184,7 +184,7 @@ XiaozhiGeneralWorker::XiaozhiGeneralWorker()
     _panel_general->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
 
     _label_idle_motion_title = std::make_unique<Label>(_panel_general->get());
-    _label_idle_motion_title->setText("Idle movement frequency:");
+    _label_idle_motion_title->setText("AI chat head movement frequency:");
     _label_idle_motion_title->setTextFont(&lv_font_montserrat_16);
     _label_idle_motion_title->setTextColor(lv_color_hex(0x26206A));
     _label_idle_motion_title->setWidth(260);
@@ -253,7 +253,7 @@ void XiaozhiGeneralWorker::update()
     }
 
     if (_confirm_flag) {
-        _confirm_flag = false;
+        _confirm_flag              = false;
         _config.startAiAgentOnBoot = _switch_start_ai_on_boot->getValue();
         GetHAL().setXiaozhiConfig(_config);
         mclog::tagInfo(_tag, "xiaozhi config updated: idleRandomMovementLevel={} ({})", _config.idleRandomMovementLevel,

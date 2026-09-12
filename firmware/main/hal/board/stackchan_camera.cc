@@ -392,6 +392,102 @@ void StackChanCamera::SetExplainUrl(const std::string& url, const std::string& t
     explain_token_ = token;
 }
 
+int StackChanCamera::SampleAmbientLuma()
+{
+    if (!streaming_on_ || video_fd_ < 0) {
+        return -1;
+    }
+
+    // Never block a photo capture just to read the light level.
+    std::unique_lock<std::mutex> lock(v4l2_mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return -1;
+    }
+
+    struct v4l2_buffer buf = {};
+    buf.type               = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory             = V4L2_MEMORY_MMAP;
+    if (ioctl(video_fd_, VIDIOC_DQBUF, &buf) != 0) {
+        return -1;
+    }
+
+    const uint8_t* data = static_cast<const uint8_t*>(mmap_buffers_[buf.index].start);
+    const size_t len    = MIN(mmap_buffers_[buf.index].length, (size_t)buf.bytesused);
+
+    // Spread a fixed number of samples across the frame so the cost does not
+    // depend on the resolution.
+    constexpr size_t kTargetSamples = 512;
+    uint32_t sum                    = 0;
+    uint32_t count                  = 0;
+
+    if (data != nullptr && len > 0) {
+        switch (sensor_format_) {
+            // esp_video reports YUV422P but actually emits packed YUYV, so luma
+            // sits in every other byte for both.
+            case V4L2_PIX_FMT_YUV422P:
+            case V4L2_PIX_FMT_YUYV: {
+                const size_t pixels = len / 2;
+                const size_t step   = MAX(pixels / kTargetSamples, (size_t)1);
+                for (size_t i = 0; i < pixels; i += step) {
+                    sum += data[i * 2];
+                    count++;
+                }
+                break;
+            }
+            // GREY is luma only; YUV420 is planar with the luma plane first, so
+            // reading the leading bytes works for both.
+            case V4L2_PIX_FMT_GREY:
+            case V4L2_PIX_FMT_YUV420: {
+                const size_t pixels = MIN(len, (size_t)frame_.width * (size_t)frame_.height);
+                const size_t step   = MAX(pixels / kTargetSamples, (size_t)1);
+                for (size_t i = 0; i < pixels; i += step) {
+                    sum += data[i];
+                    count++;
+                }
+                break;
+            }
+            case V4L2_PIX_FMT_RGB565: {
+                const size_t pixels = len / 2;
+                const size_t step   = MAX(pixels / kTargetSamples, (size_t)1);
+                const auto* px16    = reinterpret_cast<const uint16_t*>(data);
+                for (size_t i = 0; i < pixels; i += step) {
+                    const uint16_t px = px16[i];
+                    const uint32_t r  = ((px >> 11) & 0x1F) << 3;
+                    const uint32_t g  = ((px >> 5) & 0x3F) << 2;
+                    const uint32_t b  = (px & 0x1F) << 3;
+                    sum += (r * 77 + g * 150 + b * 29) >> 8;
+                    count++;
+                }
+                break;
+            }
+            case V4L2_PIX_FMT_RGB24: {
+                const size_t pixels = len / 3;
+                const size_t step   = MAX(pixels / kTargetSamples, (size_t)1);
+                for (size_t i = 0; i < pixels; i += step) {
+                    const uint32_t r = data[i * 3 + 0];
+                    const uint32_t g = data[i * 3 + 1];
+                    const uint32_t b = data[i * 3 + 2];
+                    sum += (r * 77 + g * 150 + b * 29) >> 8;
+                    count++;
+                }
+                break;
+            }
+            default:
+                // Compressed formats cannot be sampled without decoding.
+                break;
+        }
+    }
+
+    if (ioctl(video_fd_, VIDIOC_QBUF, &buf) != 0) {
+        ESP_LOGE(TAG, "ambient luma: VIDIOC_QBUF failed");
+    }
+
+    if (count == 0) {
+        return -1;
+    }
+    return (int)(sum / count);
+}
+
 bool StackChanCamera::Capture()
 {
     if (encoder_thread_.joinable()) {
@@ -401,6 +497,8 @@ bool StackChanCamera::Capture()
     if (!streaming_on_ || video_fd_ < 0) {
         return false;
     }
+
+    std::lock_guard<std::mutex> lock(v4l2_mutex_);
 
     // Play shutter sfx
     hal_bridge::app_play_sound(OGG_CAMERA_SHUTTER);
@@ -861,6 +959,8 @@ bool StackChanCamera::StreamCaptures()
         return false;
     }
 
+    std::lock_guard<std::mutex> lock(v4l2_mutex_);
+
     {
         struct v4l2_buffer buf = {};
         buf.type               = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -1043,8 +1143,8 @@ std::string StackChanCamera::Explain(const std::string& question)
         uint16_t h             = frame_.height ? frame_.height : 240;
         v4l2_pix_fmt_t enc_fmt = frame_.format;
         bool ok                = image_to_jpeg_cb(
-                           frame_.data, frame_.len, w, h, enc_fmt, 80,
-                           [](void* arg, size_t index, const void* data, size_t len) -> size_t {
+            frame_.data, frame_.len, w, h, enc_fmt, 80,
+            [](void* arg, size_t index, const void* data, size_t len) -> size_t {
                 auto jpeg_queue = static_cast<QueueHandle_t>(arg);
                 JpegChunk chunk = {.data = nullptr, .len = len};
                 if (index == 0 && data != nullptr && len > 0) {
@@ -1060,8 +1160,8 @@ std::string StackChanCamera::Explain(const std::string& question)
                 }
                 xQueueSend(jpeg_queue, &chunk, portMAX_DELAY);
                 return len;
-                           },
-                           jpeg_queue);
+            },
+            jpeg_queue);
 
         if (!ok) {
             JpegChunk chunk = {.data = nullptr, .len = 0};

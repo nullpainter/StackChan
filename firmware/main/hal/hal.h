@@ -202,6 +202,10 @@ public:
     void setBackLightBrightness(uint8_t brightness, bool permanent = false);
     uint8_t getBackLightBrightness();
 
+    /* ------------------------------ Ambient light ----------------------------- */
+    int getAmbientLuma();
+    bool isScreenOffByAmbientLight();
+
     /* --------------------------------- Xiaozhi -------------------------------- */
     void requestXiaozhiStart()
     {
@@ -214,6 +218,9 @@ public:
     void startXiaozhi();
     XiaozhiConfig_t getXiaozhiConfig();
     void setXiaozhiConfig(XiaozhiConfig_t config);
+    void setConversationTarget(float normalizedX, float normalizedY, uint32_t ttlMs = 5000);
+    void clearConversationTarget();
+    bool getConversationTarget(float& normalizedX, float& normalizedY);
 
     /* ----------------------------------- BLE ---------------------------------- */
     uitk::Signal<const char*> onBleMotionData;
@@ -313,6 +320,7 @@ private:
     void io_expander_init();
     void imu_init();
     void rtc_init();
+    void ambient_light_init();
 };
 
 Hal& GetHAL();

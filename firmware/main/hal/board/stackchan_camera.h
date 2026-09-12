@@ -5,6 +5,7 @@
 #include <lvgl.h>
 #include <thread>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include <freertos/FreeRTOS.h>
@@ -43,6 +44,9 @@ private:
     std::string explain_url_;
     std::string explain_token_;
     std::thread encoder_thread_;
+    // Guards VIDIOC_DQBUF/VIDIOC_QBUF pairs so ambient sampling cannot steal a
+    // buffer from an in-flight Capture().
+    std::mutex v4l2_mutex_;
 
 public:
     StackChanCamera(const esp_video_init_config_t& config);
@@ -51,6 +55,11 @@ public:
     virtual void SetExplainUrl(const std::string& url, const std::string& token);
     virtual bool Capture() override;
     bool StreamCaptures();
+
+    // Grabs a live frame and returns its mean luma (0-255), or -1 when no
+    // reading is available (camera not streaming, busy capturing, or the sensor
+    // format cannot be sampled cheaply).
+    int SampleAmbientLuma();
 
     // 翻转控制函数
     virtual bool SetHMirror(bool enabled) override;

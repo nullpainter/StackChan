@@ -31,6 +31,12 @@ struct XiaozhiConfig_t {
     bool startAiAgentOnBoot          = false;
 };
 
+struct ConversationTarget_t {
+    float x     = 0.0f;
+    float y     = 0.0f;
+    bool active = false;
+};
+
 void lock();
 void unlock();
 Data_t& get_data();
@@ -41,6 +47,10 @@ TouchPoint_t get_touch_point();
 bool is_xiaozhi_mode();
 void set_xiaozhi_mode(bool mode);
 void toggle_xiaozhi_chat_state();
+void exit_xiaozhi_chat_mode();
+void set_conversation_target(float x, float y, uint32_t ttl_ms = 5000);
+void clear_conversation_target();
+ConversationTarget_t get_conversation_target();
 
 void disply_lvgl_lock();
 void disply_lvgl_unlock();
@@ -59,6 +69,7 @@ int board_get_battery_level();
 bool board_is_battery_charging();
 void board_set_backlight_brightness(uint8_t brightness, bool permanent = false);
 uint8_t board_get_backlight_brightness();
+int board_sample_ambient_luma();
 void board_set_speaker_volume(uint8_t volume, bool permanent = false);
 uint8_t board_get_speaker_volume();
 

@@ -15,8 +15,10 @@
 #include <board.h>
 #include <display.h>
 #include <mutex>
+#include <algorithm>
 #include <assets.h>
 #include <settings.h>
+#include <esp_timer.h>
 
 static const char* _tag = "HAL_BRIDGE";
 
@@ -34,6 +36,8 @@ namespace hal_bridge {
 
 static std::mutex _mutex;
 static Data_t _data;
+static ConversationTarget_t _conversation_target;
+static int64_t _conversation_target_expire_us = 0;
 
 void lock()
 {
@@ -74,6 +78,32 @@ void set_xiaozhi_mode(bool mode)
 {
     std::lock_guard<std::mutex> lock(_mutex);
     _data.isXiaozhiMode = mode;
+}
+
+void set_conversation_target(float x, float y, uint32_t ttl_ms)
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    _conversation_target.x         = std::clamp(x, -1.0f, 1.0f);
+    _conversation_target.y         = std::clamp(y, -1.0f, 1.0f);
+    _conversation_target.active    = true;
+    _conversation_target_expire_us = esp_timer_get_time() + (static_cast<int64_t>(ttl_ms) * 1000);
+}
+
+void clear_conversation_target()
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    _conversation_target.active    = false;
+    _conversation_target_expire_us = 0;
+}
+
+ConversationTarget_t get_conversation_target()
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (_conversation_target.active && esp_timer_get_time() > _conversation_target_expire_us) {
+        _conversation_target.active    = false;
+        _conversation_target_expire_us = 0;
+    }
+    return _conversation_target;
 }
 
 /* -------------------------------------------------------------------------- */

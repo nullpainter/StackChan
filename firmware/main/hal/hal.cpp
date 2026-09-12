@@ -40,6 +40,7 @@ void Hal::init()
     imu_init();
     servo_init();
     lvgl_init();
+    ambient_light_init();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -221,6 +222,28 @@ void Hal::setXiaozhiConfig(XiaozhiConfig_t config)
         .idleRandomMovementLevel   = config.idleRandomMovementLevel,
         .startAiAgentOnBoot        = config.startAiAgentOnBoot,
     });
+}
+
+void Hal::setConversationTarget(float normalizedX, float normalizedY, uint32_t ttlMs)
+{
+    hal_bridge::set_conversation_target(normalizedX, normalizedY, ttlMs);
+}
+
+void Hal::clearConversationTarget()
+{
+    hal_bridge::clear_conversation_target();
+}
+
+bool Hal::getConversationTarget(float& normalizedX, float& normalizedY)
+{
+    auto target = hal_bridge::get_conversation_target();
+    if (!target.active) {
+        return false;
+    }
+
+    normalizedX = target.x;
+    normalizedY = target.y;
+    return true;
 }
 
 uint8_t Hal::getBatteryLevel()
