@@ -1,6 +1,10 @@
 # Define xiaozhi source directory
 set(XIAOZHI_MAIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../xiaozhi-esp32/main")
 
+# NOTE: CONFIGURE_DEPENDS cannot be used here. ESP-IDF re-runs this file in
+# script mode (cmake -P) while expanding component requirements, and
+# CONFIGURE_DEPENDS is rejected in that mode. After adding a new source file,
+# run `idf.py reconfigure` so the glob below is re-evaluated.
 file(GLOB_RECURSE STACK_CHAN_SOURCES
     "apps/*.c"
     "apps/*.cc"
@@ -15,56 +19,59 @@ file(GLOB_RECURSE STACK_CHAN_SOURCES
     "stackchan/*.cc"
     "stackchan/*.cpp"
 )
-set(STACK_CHAN_INCLUDE_DIRS 
+set(STACK_CHAN_INCLUDE_DIRS
     "."
 )
 list(APPEND STACK_CHAN_SOURCES main.cpp)
 
 # Define source files
 set(SOURCES "audio/audio_codec.cc"
-            "audio/audio_service.cc"
-            "audio/demuxer/ogg_demuxer.cc"
-            "audio/codecs/no_audio_codec.cc"
-            "audio/codecs/box_audio_codec.cc"
-            "audio/codecs/es8311_audio_codec.cc"
-            "audio/codecs/es8374_audio_codec.cc"
-            "audio/codecs/es8388_audio_codec.cc"
-            "audio/codecs/es8389_audio_codec.cc"
-            "audio/codecs/dummy_audio_codec.cc"
-            "audio/processors/audio_debugger.cc"
-            "led/single_led.cc"
-            "led/circular_strip.cc"
-            "led/gpio_led.cc"
-            "display/display.cc"
-            "display/lcd_display.cc"
-            "display/oled_display.cc"
-            "display/lvgl_display/lvgl_display.cc"
-            # "display/emote_display.cc"
-            "display/lvgl_display/emoji_collection.cc"
-            "display/lvgl_display/lvgl_theme.cc"
-            "display/lvgl_display/lvgl_font.cc"
-            "display/lvgl_display/lvgl_image.cc"
-            "display/lvgl_display/gif/lvgl_gif.cc"
-            "display/lvgl_display/gif/gifdec.c"
-            "display/lvgl_display/jpg/image_to_jpeg.cpp"
-            "display/lvgl_display/jpg/jpeg_to_image.c"
-            "protocols/protocol.cc"
-            "protocols/mqtt_protocol.cc"
-            "protocols/websocket_protocol.cc"
-            "mcp_server.cc"
-            "system_info.cc"
-            "application.cc"
-            "ota.cc"
-            "settings.cc"
-            "device_state_machine.cc"
-            "assets.cc"
-            # "main.cc"
-            )
+    "audio/audio_service.cc"
+    "audio/demuxer/ogg_demuxer.cc"
+    "audio/codecs/no_audio_codec.cc"
+    "audio/codecs/box_audio_codec.cc"
+    "audio/codecs/es8311_audio_codec.cc"
+    "audio/codecs/es8374_audio_codec.cc"
+    "audio/codecs/es8388_audio_codec.cc"
+    "audio/codecs/es8389_audio_codec.cc"
+    "audio/codecs/dummy_audio_codec.cc"
+    "audio/processors/audio_debugger.cc"
+    "led/single_led.cc"
+    "led/circular_strip.cc"
+    "led/gpio_led.cc"
+    "display/display.cc"
+    "display/lcd_display.cc"
+    "display/oled_display.cc"
+    "display/lvgl_display/lvgl_display.cc"
+
+    # "display/emote_display.cc"
+    "display/lvgl_display/emoji_collection.cc"
+    "display/lvgl_display/lvgl_theme.cc"
+    "display/lvgl_display/lvgl_font.cc"
+    "display/lvgl_display/lvgl_image.cc"
+    "display/lvgl_display/gif/lvgl_gif.cc"
+    "display/lvgl_display/gif/gifdec.c"
+    "display/lvgl_display/jpg/image_to_jpeg.cpp"
+    "display/lvgl_display/jpg/jpeg_to_image.c"
+    "protocols/protocol.cc"
+    "protocols/mqtt_protocol.cc"
+    "protocols/websocket_protocol.cc"
+    "mcp_server.cc"
+    "system_info.cc"
+    "application.cc"
+    "ota.cc"
+    "settings.cc"
+    "device_state_machine.cc"
+    "assets.cc"
+
+    # "main.cc"
+)
 
 # Transform relative paths to absolute paths from xiaozhi-esp32/main
 list(TRANSFORM SOURCES PREPEND "${XIAOZHI_MAIN_DIR}/")
 
 set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
+
 # Transform include dirs to absolute paths from xiaozhi-esp32/main
 list(TRANSFORM INCLUDE_DIRS PREPEND "${XIAOZHI_MAIN_DIR}/")
 
@@ -91,8 +98,8 @@ list(APPEND SOURCES
 )
 list(APPEND INCLUDE_DIRS ${XIAOZHI_MAIN_DIR}/boards/common ${STACK_CHAN_INCLUDE_DIRS})
 
-
 idf_build_get_property(build_components BUILD_COMPONENTS)
+
 # Function to find component dynamically by pattern
 function(find_component_by_pattern PATTERN COMPONENT_VAR PATH_VAR)
     foreach(COMPONENT ${build_components})
@@ -131,6 +138,7 @@ else()
         ${XIAOZHI_MAIN_DIR}/boards/${BOARD_TYPE}/*.c
     )
 endif()
+
 list(APPEND SOURCES ${BOARD_SOURCES})
 
 # Select audio processor according to Kconfig
@@ -139,6 +147,7 @@ if(CONFIG_USE_AUDIO_PROCESSOR)
 else()
     list(APPEND SOURCES "${XIAOZHI_MAIN_DIR}/audio/processors/no_audio_processor.cc")
 endif()
+
 if(CONFIG_IDF_TARGET_ESP32S3 OR CONFIG_IDF_TARGET_ESP32P4)
     list(APPEND SOURCES "${XIAOZHI_MAIN_DIR}/audio/wake_words/afe_wake_word.cc")
     list(APPEND SOURCES "${XIAOZHI_MAIN_DIR}/audio/wake_words/custom_wake_word.cc")
@@ -147,9 +156,10 @@ else()
 endif()
 
 # Auto Select Additional Sources
-if (CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING)
+if(CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING)
     list(APPEND SOURCES "boards/common/blufi.cpp")
-endif ()
+endif()
+
 # Select language directory according to Kconfig
 if(CONFIG_LANGUAGE_ZH_CN)
     set(LANG_DIR "zh-CN")
@@ -239,17 +249,19 @@ file(GLOB LANG_SOUNDS ${XIAOZHI_MAIN_DIR}/assets/locales/${LANG_DIR}/*.ogg)
 # If not en-US, collect en-US audio files as fallback for missing files
 if(NOT LANG_DIR STREQUAL "en-US")
     file(GLOB EN_US_SOUNDS ${XIAOZHI_MAIN_DIR}/assets/locales/en-US/*.ogg)
-    
+
     # Extract filenames (without path) from current language
     set(EXISTING_NAMES "")
+
     foreach(SOUND_FILE ${LANG_SOUNDS})
         get_filename_component(FILENAME ${SOUND_FILE} NAME)
         list(APPEND EXISTING_NAMES ${FILENAME})
     endforeach()
-    
+
     # Only add en-US audio files that are missing in current language
     foreach(EN_SOUND ${EN_US_SOUNDS})
         get_filename_component(FILENAME ${EN_SOUND} NAME)
+
         if(NOT ${FILENAME} IN_LIST EXISTING_NAMES)
             list(APPEND LANG_SOUNDS ${EN_SOUND})
             message(STATUS "Using en-US fallback for missing audio: ${FILENAME}")
@@ -258,7 +270,7 @@ if(NOT LANG_DIR STREQUAL "en-US")
 endif()
 
 # file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
-file(GLOB COMMON_SOUNDS 
+file(GLOB COMMON_SOUNDS
     ${XIAOZHI_MAIN_DIR}/assets/common/*.ogg
     assets/sfx/*.ogg
 )
@@ -266,22 +278,22 @@ file(GLOB COMMON_SOUNDS
 # If target chip is ESP32, exclude specific files to avoid build errors
 if(CONFIG_IDF_TARGET_ESP32)
     list(REMOVE_ITEM SOURCES "audio/codecs/box_audio_codec.cc"
-                             "audio/codecs/es8388_audio_codec.cc"
-                             "audio/codecs/es8389_audio_codec.cc"
-                             "led/gpio_led.cc"
-                             "display/lvgl_display/jpg/image_to_jpeg.cpp"
-                             "display/lvgl_display/jpg/jpeg_to_image.c"
-                             "boards/common/nt26_board.cc"
-                             "boards/common/ml307_board.cc"
-                             "boards/common/dual_network_board.cc"
-                             )
+        "audio/codecs/es8388_audio_codec.cc"
+        "audio/codecs/es8389_audio_codec.cc"
+        "led/gpio_led.cc"
+        "display/lvgl_display/jpg/image_to_jpeg.cpp"
+        "display/lvgl_display/jpg/jpeg_to_image.c"
+        "boards/common/nt26_board.cc"
+        "boards/common/ml307_board.cc"
+        "boards/common/dual_network_board.cc"
+    )
 endif()
 
 # Include EspVideo if target is ESP32S3 or ESP32P4
 if(CONFIG_IDF_TARGET_ESP32S3 OR CONFIG_IDF_TARGET_ESP32P4)
     list(APPEND SOURCES "${XIAOZHI_MAIN_DIR}/boards/common/esp_video.cc"
-                        "${XIAOZHI_MAIN_DIR}/boards/common/rndis_board.cc"
-                        )
+        "${XIAOZHI_MAIN_DIR}/boards/common/rndis_board.cc"
+    )
 endif()
 
 # Include Esp32Camera if target is ESP32S3
@@ -290,53 +302,54 @@ if(CONFIG_IDF_TARGET_ESP32S3)
 endif()
 
 idf_component_register(SRCS ${SOURCES}
-                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
-                    INCLUDE_DIRS ${INCLUDE_DIRS}
-                    WHOLE_ARCHIVE
-                    PRIV_REQUIRES
-                        esp_pm
-                        esp_psram
-                        esp_netif
-                        esp_driver_gpio
-                        esp_driver_uart
-                        esp_driver_spi
-                        esp_driver_i2c
-                        esp_driver_i2s
-                        esp_driver_jpeg
-                        esp_driver_ppa
-                        esp_app_format
-                        app_update
-                        spi_flash
-                        console
-                        efuse
-                        bt
-                        fatfs
-                        ArduinoJson
-                        esp-now
-                        mooncake
-                        mooncake_log
-                        smooth_ui_toolkit
-                    )
+    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
+    INCLUDE_DIRS ${INCLUDE_DIRS}
+    WHOLE_ARCHIVE
+    PRIV_REQUIRES
+    esp_pm
+    esp_psram
+    esp_netif
+    esp_driver_gpio
+    esp_driver_uart
+    esp_driver_spi
+    esp_driver_i2c
+    esp_driver_i2s
+    esp_driver_jpeg
+    esp_driver_ppa
+    esp_app_format
+    app_update
+    spi_flash
+    console
+    efuse
+    bt
+    fatfs
+    ArduinoJson
+    esp-now
+    mooncake
+    mooncake_log
+    smooth_ui_toolkit
+)
 
 # Use target_compile_definitions to define BOARD_TYPE, BOARD_NAME
 # If BOARD_NAME is empty, use BOARD_TYPE
 if(NOT BOARD_NAME)
     set(BOARD_NAME ${BOARD_TYPE})
 endif()
+
 target_compile_definitions(${COMPONENT_LIB}
-                    PRIVATE BOARD_TYPE=\"${BOARD_TYPE}\" BOARD_NAME=\"${BOARD_NAME}\"
-                    PRIVATE BUILTIN_TEXT_FONT=${BUILTIN_TEXT_FONT} BUILTIN_ICON_FONT=${BUILTIN_ICON_FONT}
-                    )
+    PRIVATE BOARD_TYPE=\"${BOARD_TYPE}\" BOARD_NAME=\"${BOARD_NAME}\"
+    PRIVATE BUILTIN_TEXT_FONT=${BUILTIN_TEXT_FONT} BUILTIN_ICON_FONT=${BUILTIN_ICON_FONT}
+)
 
 # Add generation rules
 add_custom_command(
     OUTPUT ${LANG_HEADER}
     COMMAND python ${XIAOZHI_MAIN_DIR}/../scripts/gen_lang.py
-            --language "${LANG_DIR}"
-            --output "${LANG_HEADER}"
+    --language "${LANG_DIR}"
+    --output "${LANG_HEADER}"
     DEPENDS
-        ${LANG_JSON}
-        ${XIAOZHI_MAIN_DIR}/../scripts/gen_lang.py
+    ${LANG_JSON}
+    ${XIAOZHI_MAIN_DIR}/../scripts/gen_lang.py
     COMMENT "Generating ${LANG_DIR} language config"
 )
 
@@ -347,51 +360,53 @@ add_custom_target(lang_header ALL
 
 # Find ESP-SR component dynamically
 find_component_by_pattern("espressif__esp-sr" ESP_SR_COMPONENT ESP_SR_COMPONENT_PATH)
+
 if(ESP_SR_COMPONENT_PATH)
     set(ESP_SR_MODEL_PATH "${ESP_SR_COMPONENT_PATH}/model")
 endif()
 
 # Find xiaozhi-fonts component dynamically
 find_component_by_pattern("xiaozhi-fonts" XIAOZHI_FONTS_COMPONENT XIAOZHI_FONTS_COMPONENT_PATH)
+
 if(XIAOZHI_FONTS_COMPONENT_PATH)
     set(XIAOZHI_FONTS_PATH "${XIAOZHI_FONTS_COMPONENT_PATH}")
 endif()
 
 if(CONFIG_BOARD_TYPE_ESP_HI)
-set(URL "https://github.com/espressif2022/image_player/raw/main/test_apps/test_8bit")
-set(EMOJI_DIR "${CMAKE_BINARY_DIR}/emoji")
-file(MAKE_DIRECTORY ${EMOJI_DIR})
+    set(URL "https://github.com/espressif2022/image_player/raw/main/test_apps/test_8bit")
+    set(EMOJI_DIR "${CMAKE_BINARY_DIR}/emoji")
+    file(MAKE_DIRECTORY ${EMOJI_DIR})
 
-# List all files to download
-set(FILES_TO_DOWNLOAD "")
-list(APPEND FILES_TO_DOWNLOAD "Anger_enter.aaf" "Anger_loop.aaf" "Anger_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "happy_enter.aaf" "happy_loop.aaf" "happ_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "sad_enter.aaf" "sad_loop.aaf" "sad_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "scorn_enter.aaf" "scorn_loop.aaf" "scorn_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "left_enter.aaf" "left_loop.aaf" "left_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "right_enter.aaf" "right_loop.aaf" "right_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "asking.aaf" "blink_once.aaf" "blink_quick.aaf")
-list(APPEND FILES_TO_DOWNLOAD "connecting.aaf" "panic_enter.aaf" "panic_loop.aaf")
-list(APPEND FILES_TO_DOWNLOAD "panic_return.aaf" "wake.aaf")
+    # List all files to download
+    set(FILES_TO_DOWNLOAD "")
+    list(APPEND FILES_TO_DOWNLOAD "Anger_enter.aaf" "Anger_loop.aaf" "Anger_return.aaf")
+    list(APPEND FILES_TO_DOWNLOAD "happy_enter.aaf" "happy_loop.aaf" "happ_return.aaf")
+    list(APPEND FILES_TO_DOWNLOAD "sad_enter.aaf" "sad_loop.aaf" "sad_return.aaf")
+    list(APPEND FILES_TO_DOWNLOAD "scorn_enter.aaf" "scorn_loop.aaf" "scorn_return.aaf")
+    list(APPEND FILES_TO_DOWNLOAD "left_enter.aaf" "left_loop.aaf" "left_return.aaf")
+    list(APPEND FILES_TO_DOWNLOAD "right_enter.aaf" "right_loop.aaf" "right_return.aaf")
+    list(APPEND FILES_TO_DOWNLOAD "asking.aaf" "blink_once.aaf" "blink_quick.aaf")
+    list(APPEND FILES_TO_DOWNLOAD "connecting.aaf" "panic_enter.aaf" "panic_loop.aaf")
+    list(APPEND FILES_TO_DOWNLOAD "panic_return.aaf" "wake.aaf")
 
-foreach(FILENAME IN LISTS FILES_TO_DOWNLOAD)
-    set(REMOTE_FILE "${URL}/${FILENAME}")
-    set(LOCAL_FILE "${EMOJI_DIR}/${FILENAME}")
-    
-    # Check if local file exists
-    if(EXISTS ${LOCAL_FILE})
-        message(STATUS "File ${FILENAME} already exists, skipping download")
-    else()
-        message(STATUS "Downloading ${FILENAME}")
-        file(DOWNLOAD ${REMOTE_FILE} ${LOCAL_FILE}
-             STATUS DOWNLOAD_STATUS)
-        list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
-        if(NOT STATUS_CODE EQUAL 0)
-            message(FATAL_ERROR "Failed to download ${FILENAME} from ${URL}")
+    foreach(FILENAME IN LISTS FILES_TO_DOWNLOAD)
+        set(REMOTE_FILE "${URL}/${FILENAME}")
+        set(LOCAL_FILE "${EMOJI_DIR}/${FILENAME}")
+
+        # Check if local file exists
+        if(EXISTS ${LOCAL_FILE})
+            message(STATUS "File ${FILENAME} already exists, skipping download")
+        else()
+            message(STATUS "Downloading ${FILENAME}")
+            file(DOWNLOAD ${REMOTE_FILE} ${LOCAL_FILE}
+                STATUS DOWNLOAD_STATUS)
+            list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
+
+            if(NOT STATUS_CODE EQUAL 0)
+                message(FATAL_ERROR "Failed to download ${FILENAME} from ${URL}")
+            endif()
         endif()
-    endif()
-endforeach()
-
+    endforeach()
 endif()
 
 set(DEFAULT_ASSETS_EXTRA_FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/assets_bin")
@@ -400,53 +415,52 @@ set(DEFAULT_ASSETS_EXTRA_FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/assets_bin")
 function(build_default_assets_bin)
     # Set output path for generated assets.bin
     set(GENERATED_ASSETS_BIN "${CMAKE_BINARY_DIR}/generated_assets.bin")
-    
+
     # Prepare arguments for build script
     set(BUILD_ARGS
         "--sdkconfig" "${SDKCONFIG}"
         "--output" "${GENERATED_ASSETS_BIN}"
     )
-    
+
     # Add builtin text font if defined
     if(BUILTIN_TEXT_FONT)
         list(APPEND BUILD_ARGS "--builtin_text_font" "${BUILTIN_TEXT_FONT}")
     endif()
-    
+
     # Add default emoji collection if defined
     if(DEFAULT_EMOJI_COLLECTION)
         list(APPEND BUILD_ARGS "--emoji_collection" "${DEFAULT_EMOJI_COLLECTION}")
     endif()
-    
+
     # Add default assets extra files if defined
     if(DEFAULT_ASSETS_EXTRA_FILES)
         list(APPEND BUILD_ARGS "--extra_files" "${DEFAULT_ASSETS_EXTRA_FILES}")
     endif()
-    
+
     list(APPEND BUILD_ARGS "--esp_sr_model_path" "${ESP_SR_MODEL_PATH}")
     list(APPEND BUILD_ARGS "--xiaozhi_fonts_path" "${XIAOZHI_FONTS_PATH}")
-    
+
     # Create custom command to build assets
     add_custom_command(
         OUTPUT ${GENERATED_ASSETS_BIN}
         COMMAND python ${XIAOZHI_MAIN_DIR}/../scripts/build_default_assets.py ${BUILD_ARGS}
         DEPENDS
-            ${SDKCONFIG}
-            ${XIAOZHI_MAIN_DIR}/../scripts/build_default_assets.py
+        ${SDKCONFIG}
+        ${XIAOZHI_MAIN_DIR}/../scripts/build_default_assets.py
         COMMENT "Building default assets.bin based on configuration"
         VERBATIM
     )
-    
+
     # Create target for generated assets
     add_custom_target(generated_default_assets ALL
         DEPENDS ${GENERATED_ASSETS_BIN}
     )
-    
+
     # Set the generated file path in parent scope
     set(GENERATED_ASSETS_LOCAL_FILE ${GENERATED_ASSETS_BIN} PARENT_SCOPE)
-    
+
     message(STATUS "Default assets build configured: ${GENERATED_ASSETS_BIN}")
 endfunction()
-
 
 # Function to get local assets file path (handles both URL and local file)
 function(get_assets_local_file assets_source assets_local_file_var)
@@ -456,30 +470,32 @@ function(get_assets_local_file assets_source assets_local_file_var)
         get_filename_component(ASSETS_FILENAME "${assets_source}" NAME)
         set(ASSETS_LOCAL_FILE "${CMAKE_BINARY_DIR}/${ASSETS_FILENAME}")
         set(ASSETS_TEMP_FILE "${CMAKE_BINARY_DIR}/${ASSETS_FILENAME}.tmp")
-        
+
         # Check if local file exists
         if(EXISTS ${ASSETS_LOCAL_FILE})
             message(STATUS "Assets file ${ASSETS_FILENAME} already exists, skipping download")
         else()
             message(STATUS "Downloading ${ASSETS_FILENAME}")
-            
+
             # Clean up any existing temp file
             if(EXISTS ${ASSETS_TEMP_FILE})
                 file(REMOVE ${ASSETS_TEMP_FILE})
             endif()
-            
+
             # Download to temporary file first
             file(DOWNLOAD ${assets_source} ${ASSETS_TEMP_FILE}
-                 STATUS DOWNLOAD_STATUS)
+                STATUS DOWNLOAD_STATUS)
             list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
+
             if(NOT STATUS_CODE EQUAL 0)
                 # Clean up temp file on failure
                 if(EXISTS ${ASSETS_TEMP_FILE})
                     file(REMOVE ${ASSETS_TEMP_FILE})
                 endif()
+
                 message(FATAL_ERROR "Failed to download ${ASSETS_FILENAME} from ${assets_source}")
             endif()
-            
+
             # Move temp file to final location (atomic operation)
             file(RENAME ${ASSETS_TEMP_FILE} ${ASSETS_LOCAL_FILE})
             message(STATUS "Successfully downloaded ${ASSETS_FILENAME}")
@@ -491,22 +507,22 @@ function(get_assets_local_file assets_source assets_local_file_var)
         else()
             set(ASSETS_LOCAL_FILE "${XIAOZHI_MAIN_DIR}/${assets_source}")
         endif()
-        
+
         # Check if local file exists
         if(NOT EXISTS ${ASSETS_LOCAL_FILE})
             message(FATAL_ERROR "Assets file not found: ${ASSETS_LOCAL_FILE}")
         endif()
-        
+
         message(STATUS "Using assets file: ${ASSETS_LOCAL_FILE}")
     endif()
-    
+
     set(${assets_local_file_var} ${ASSETS_LOCAL_FILE} PARENT_SCOPE)
 endfunction()
 
-
 partition_table_get_partition_info(size "--partition-name assets" "size")
 partition_table_get_partition_info(offset "--partition-name assets" "offset")
-if ("${size}" AND "${offset}")
+
+if("${size}" AND "${offset}")
     # Flash assets based on configuration
     if(CONFIG_FLASH_DEFAULT_ASSETS)
         # Build default assets based on configuration

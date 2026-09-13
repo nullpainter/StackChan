@@ -1,3 +1,36 @@
+## Matt's StackChan 
+
+This fork provides small enhancements to AI features in the stock firmware.
+
+### Interaction
+
+* Tap head to interrupt — single tap while she's talking cuts her off mid-sentence but stays in the conversation.
+* Double-tap head to leave chat — two taps exits conversation mode.
+
+
+### LEDs
+
+* Listening — solid colour on both strips.
+* Speaking effect — blue pixel animation with random highlights, modulated by speech. 
+
+Both options configurable via settings.
+
+
+### Gaze and movement
+
+* Idle movement option repurposed to movement during AI chat
+
+### Display
+
+* Chat speech bubbles disabled
+
+### Ambient light
+
+* Screen turns off in a dark room and back on once the room is lit again.
+* Tapping a dark screen turns it on early, and keeps it on until the light returns.
+* Can be toggled through settings.
+
+
 
 ## Build
 

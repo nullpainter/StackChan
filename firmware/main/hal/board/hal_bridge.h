@@ -29,6 +29,9 @@ struct XiaozhiConfig_t {
     bool allowShutdownWhenCharging   = false;
     uint8_t idleRandomMovementLevel  = 2;
     bool startAiAgentOnBoot          = false;
+    bool autoScreenOffInDark         = true;
+    uint32_t chatLedColor            = 0x004040;
+    uint32_t speechLedColor          = 0x0000FF;
 };
 
 struct ConversationTarget_t {
@@ -69,9 +72,9 @@ int board_get_battery_level();
 bool board_is_battery_charging();
 void board_set_backlight_brightness(uint8_t brightness, bool permanent = false);
 uint8_t board_get_backlight_brightness();
-int board_sample_ambient_luma();
 void board_set_speaker_volume(uint8_t volume, bool permanent = false);
 uint8_t board_get_speaker_volume();
+void board_reload_led_colors();
 
 void app_play_sound(const std::string_view& sound);
 

@@ -56,11 +56,6 @@ public:
     virtual bool Capture() override;
     bool StreamCaptures();
 
-    // Grabs a live frame and returns its mean luma (0-255), or -1 when no
-    // reading is available (camera not streaming, busy capturing, or the sensor
-    // format cannot be sampled cheaply).
-    int SampleAmbientLuma();
-
     // 翻转控制函数
     virtual bool SetHMirror(bool enabled) override;
     virtual bool SetVFlip(bool enabled) override;

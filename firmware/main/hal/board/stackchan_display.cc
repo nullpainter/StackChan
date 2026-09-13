@@ -19,6 +19,7 @@
 #include <stackchan/stackchan.h>
 #include <assets/lang_config.h>
 #include <hal/hal.h>
+#include <hal/board/hal_bridge.h>
 
 using namespace stackchan;
 using namespace stackchan::avatar;
@@ -26,8 +27,27 @@ using namespace stackchan::avatar;
 #define TAG "StackChanAvatarDisplay"
 
 namespace {
+// Neon strip colours, cached from the user's settings so the LED timer does not
+// have to hit NVS on every tick. Refreshed by reloadLedColors().
+struct LedColor {
+    uint8_t r, g, b;
+};
+
+LedColor unpackColor(uint32_t rgb)
+{
+    return {static_cast<uint8_t>((rgb >> 16) & 0xFF), static_cast<uint8_t>((rgb >> 8) & 0xFF),
+            static_cast<uint8_t>(rgb & 0xFF)};
+}
+
+LedColor _chat_color   = {0, 64, 64};
+LedColor _speech_color = {0, 0, 255};
+
+// Mouth animation rate. Deliberately not part of the preset below: the
+// Off/Low/Medium/High setting is about head movement, so it must not change how
+// fast the mouth moves. This is the upstream SpeakingModifier default.
+constexpr uint32_t kMouthIntervalMs = 180;
+
 struct SpeakingMotionPreset {
-    uint32_t mouth_interval_ms;
     uint32_t motion_interval_min_ms;
     uint32_t motion_interval_max_ms;
     bool enable_head_motion;
@@ -37,10 +57,10 @@ SpeakingMotionPreset getSpeakingMotionPreset(uint8_t level)
 {
     // Reuse existing Xiaozhi levels: Off/Low/Medium/High
     static constexpr std::array<SpeakingMotionPreset, 4> kPresets = {{
-        {220, 2200, 3200, false},  // Off: keep mouth only, disable head motion
-        {200, 1800, 2600, true},   // Low
-        {180, 1400, 2200, true},   // Medium
-        {150, 900, 1600, true},    // High
+        {2200, 3200, false},  // Off: no head motion
+        {1800, 2600, true},   // Low
+        {1400, 2200, true},   // Medium
+        {900, 1600, true},    // High
     }};
 
     if (level >= kPresets.size()) {
@@ -49,6 +69,18 @@ SpeakingMotionPreset getSpeakingMotionPreset(uint8_t level)
     return kPresets[level];
 }
 }  // namespace
+
+void StackChanAvatarDisplay::ReloadLedColors()
+{
+    const auto config = hal_bridge::get_xiaozhi_config();
+    _chat_color       = unpackColor(config.chatLedColor);
+    _speech_color     = unpackColor(config.speechLedColor);
+}
+
+void hal_bridge::board_reload_led_colors()
+{
+    StackChanAvatarDisplay::ReloadLedColors();
+}
 
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
@@ -106,6 +138,9 @@ StackChanAvatarDisplay::StackChanAvatarDisplay(esp_lcd_panel_io_handle_t panel_i
 
     // Initialize LCD themes
     InitializeLcdThemes();
+
+    // Pick up the user's neon strip colours before any LED effect runs.
+    ReloadLedColors();
 
     // Load theme from settings
     Settings settings("display", false);
@@ -230,19 +265,27 @@ StackChanAvatarDisplay::StackChanAvatarDisplay(esp_lcd_panel_io_handle_t panel_i
                     }
                 }
 
-                // Keep blue full, but clamp aqua/green channel to half-brightness max.
-                const uint8_t green_highlight = static_cast<uint8_t>(128 - (display->speaking_led_level_ / 2));
-                const uint8_t on_threshold    = static_cast<uint8_t>(60 + (display->speaking_led_level_ * 140) / 255);
+                // Blend the speech colour in over the chat colour as the level
+                // rises, so the highlight pulses with the voice rather than
+                // switching between two flat colours.
+                const uint8_t level = display->speaking_led_level_;
+                const auto blend    = [level](uint8_t from, uint8_t to) {
+                    return static_cast<uint8_t>(from + ((to - from) * level) / 255);
+                };
+                const uint8_t hi_r         = blend(_chat_color.r, _speech_color.r);
+                const uint8_t hi_g         = blend(_chat_color.g, _speech_color.g);
+                const uint8_t hi_b         = blend(_chat_color.b, _speech_color.b);
+                const uint8_t on_threshold = static_cast<uint8_t>(60 + (level * 140) / 255);
 
                 constexpr uint8_t kLedCount = 12;
                 for (uint8_t i = 0; i < kLedCount; ++i) {
                     const bool is_highlight = static_cast<uint8_t>(esp_random() & 0xFF) < on_threshold;
                     if (is_highlight) {
-                        // "On" pixel: voice-modulated blue blend.
-                        GetHAL().setRgbColor(i, 0, green_highlight, 255);
+                        // "On" pixel: voice-modulated speech colour.
+                        GetHAL().setRgbColor(i, hi_r, hi_g, hi_b);
                     } else {
-                        // "Off" pixel: dim aqua baseline.
-                        GetHAL().setRgbColor(i, 0, 64, 64);
+                        // "Off" pixel: chat colour baseline.
+                        GetHAL().setRgbColor(i, _chat_color.r, _chat_color.g, _chat_color.b);
                     }
                 }
                 GetHAL().refreshRgb();
@@ -627,8 +670,8 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
             stackchan.motion().lookAtNormalized(target_x, target_y, 200);
         }
 
-        // Solid dim aqua on both strips while listening.
-        GetHAL().showRgbColor(0, 64, 64);
+        // Solid chat colour on both strips while listening.
+        GetHAL().showRgbColor(_chat_color.r, _chat_color.g, _chat_color.b);
 
     } else if (strcmp(status, Lang::Strings::STANDBY) == 0) {
         _is_xiaozhi_ready = true;
@@ -665,7 +708,7 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
             const auto preset = getSpeakingMotionPreset(config.idleRandomMovementLevel);
 
             speaking_modifier_id_ = stackchan.addModifier(
-                std::make_unique<SpeakingModifier>(0, preset.mouth_interval_ms, preset.enable_head_motion,
+                std::make_unique<SpeakingModifier>(0, kMouthIntervalMs, preset.enable_head_motion,
                                                    preset.motion_interval_min_ms, preset.motion_interval_max_ms));
         }
 

@@ -211,6 +211,9 @@ XiaozhiConfig_t Hal::getXiaozhiConfig()
         .allowShutdownWhenCharging = bridge_config.allowShutdownWhenCharging,
         .idleRandomMovementLevel   = bridge_config.idleRandomMovementLevel,
         .startAiAgentOnBoot        = bridge_config.startAiAgentOnBoot,
+        .autoScreenOffInDark       = bridge_config.autoScreenOffInDark,
+        .chatLedColor              = bridge_config.chatLedColor,
+        .speechLedColor            = bridge_config.speechLedColor,
     };
 }
 
@@ -221,6 +224,9 @@ void Hal::setXiaozhiConfig(XiaozhiConfig_t config)
         .allowShutdownWhenCharging = config.allowShutdownWhenCharging,
         .idleRandomMovementLevel   = config.idleRandomMovementLevel,
         .startAiAgentOnBoot        = config.startAiAgentOnBoot,
+        .autoScreenOffInDark       = config.autoScreenOffInDark,
+        .chatLedColor              = config.chatLedColor,
+        .speechLedColor            = config.speechLedColor,
     });
 }
 
@@ -312,15 +318,32 @@ static void lvgl_read_cb(lv_indev_t* indev, lv_indev_data_t* data)
     // mclog::tagInfo(_tag, "touchpoint: {}, x: {}, y: {}", bridge_data.touchPoint.num, bridge_data.touchPoint.x,
     //                bridge_data.touchPoint.y);
 
-    if (bridge_data.touchPoint.num == 0) {
+    const bool pressed = bridge_data.touchPoint.num != 0;
+    const auto point   = bridge_data.touchPoint;
+
+    hal_bridge::unlock();
+
+    // A tap that wakes a screen the dark room rule put to sleep is swallowed
+    // for the whole press, so it cannot also press whatever happens to be under
+    // the finger on a screen the user could not see.
+    static bool swallowing_press = false;
+    if (!pressed) {
+        swallowing_press = false;
+    } else {
+        if (swallowing_press || GetHAL().wakeScreenOnTouch()) {
+            swallowing_press = true;
+            data->state      = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+    }
+
+    if (!pressed) {
         data->state = LV_INDEV_STATE_RELEASED;
     } else {
         data->state   = LV_INDEV_STATE_PRESSED;
-        data->point.x = bridge_data.touchPoint.x;
-        data->point.y = bridge_data.touchPoint.y;
+        data->point.x = point.x;
+        data->point.y = point.y;
     }
-
-    hal_bridge::unlock();
 }
 
 void Hal::lvgl_init()

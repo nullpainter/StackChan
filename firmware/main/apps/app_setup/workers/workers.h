@@ -356,6 +356,52 @@ private:
 };
 
 /**
+ * @brief Screen blanking driven by the LTR-553 ambient light sensor. The screen
+ * goes off once the room reads dark, comes back on once it reads lit again, and
+ * a tap wakes it early and holds it on until the light returns.
+ *
+ */
+class ScreenOffWorker : public WorkerBase {
+public:
+    ScreenOffWorker();
+    void update() override;
+
+private:
+    std::unique_ptr<uitk::lvgl_cpp::Container> _panel;
+    std::unique_ptr<uitk::lvgl_cpp::Container> _panel_dark;
+    std::unique_ptr<uitk::lvgl_cpp::Label> _label_dark_title;
+    std::unique_ptr<uitk::lvgl_cpp::Switch> _switch_dark;
+    std::unique_ptr<uitk::lvgl_cpp::Button> _btn_confirm;
+
+    XiaozhiConfig_t _config;
+    bool _confirm_flag = false;
+};
+
+/**
+ * @brief Picks one of the two neon strip colours. Which one is chosen by the
+ * constructor argument, so both menu entries share this page.
+ *
+ */
+class LedColorWorker : public WorkerBase {
+public:
+    enum class Target { Chat, Speech };
+
+    explicit LedColorWorker(Target target);
+    ~LedColorWorker();
+    void update() override;
+
+private:
+    std::unique_ptr<uitk::lvgl_cpp::Container> _panel;
+    std::unique_ptr<uitk::lvgl_cpp::Label> _label_title;
+    std::vector<std::unique_ptr<uitk::lvgl_cpp::Button>> _buttons;
+
+    Target _target;
+    XiaozhiConfig_t _config;
+    int32_t _pending_color = -1;
+    bool _confirm_flag     = false;
+};
+
+/**
  * @brief
  *
  */

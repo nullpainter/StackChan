@@ -725,15 +725,6 @@ uint8_t hal_bridge::board_get_backlight_brightness()
     }
 }
 
-int hal_bridge::board_sample_ambient_luma()
-{
-    auto camera = board_get_camera();
-    if (camera == nullptr) {
-        return -1;
-    }
-    return camera->SampleAmbientLuma();
-}
-
 void hal_bridge::board_set_speaker_volume(uint8_t volume, bool permanent)
 {
     auto& board      = Board::GetInstance();

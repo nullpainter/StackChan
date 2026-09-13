@@ -119,6 +119,16 @@ struct XiaozhiConfig_t {
     bool allowShutdownWhenCharging   = false;
     uint8_t idleRandomMovementLevel  = 2;
     bool startAiAgentOnBoot          = false;
+    // Screen blanking driven by the LTR-553 ambient light sensor: the screen
+    // goes off in a dark room, comes back on when the room is lit again, and a
+    // tap wakes it early.
+    bool autoScreenOffInDark = true;
+
+    // Neon strip colours, packed 0xRRGGBB. The defaults are the colours these
+    // were hard-coded to before they became configurable: dim aqua while the
+    // agent listens, blue for the highlights while it speaks.
+    uint32_t chatLedColor   = 0x004040;
+    uint32_t speechLedColor = 0x0000FF;
 };
 
 /**
@@ -203,8 +213,14 @@ public:
     uint8_t getBackLightBrightness();
 
     /* ------------------------------ Ambient light ----------------------------- */
-    int getAmbientLuma();
+    int getAmbientLightLevel();
     bool isScreenOffByAmbientLight();
+    void setAutoScreenOffInDark(bool enabled);
+
+    // Wakes a screen that the dark room rule put to sleep. Returns true if the
+    // touch was used for that, meaning the caller should swallow it rather than
+    // passing it on to whatever is under the finger.
+    bool wakeScreenOnTouch();
 
     /* --------------------------------- Xiaozhi -------------------------------- */
     void requestXiaozhiStart()

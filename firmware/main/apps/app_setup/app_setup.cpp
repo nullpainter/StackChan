@@ -86,6 +86,27 @@ void AppSetup::onOpen()
               }}},
         },
         {
+            "Screen Off",
+            {{"In The Dark",
+              [&]() {
+                  _destroy_menu = true;
+                  _worker       = std::make_unique<ScreenOffWorker>();
+              }}},
+        },
+        {
+            "LED Colour",
+            {{"Chat Colour",
+              [&]() {
+                  _destroy_menu = true;
+                  _worker       = std::make_unique<LedColorWorker>(LedColorWorker::Target::Chat);
+              }},
+             {"Speech Colour",
+              [&]() {
+                  _destroy_menu = true;
+                  _worker       = std::make_unique<LedColorWorker>(LedColorWorker::Target::Speech);
+              }}},
+        },
+        {
             "Hardware Test",
             {{"Servo",
               [&]() {
