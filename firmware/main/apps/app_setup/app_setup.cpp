@@ -145,12 +145,8 @@ void AppSetup::onOpen()
                          _worker       = std::make_unique<FwVersionWorker>();
                      }
                  }},
-                {"Check for Updates",
-                 [&]() {
-                     _destroy_menu    = true;
-                     _need_warm_reset = true;
-                     _worker          = std::make_unique<SystemUpdateWorker>();
-                 }},
+                // "Check for Updates" removed: OTA would replace this custom firmware
+                // with the upstream image.
                 //  {"Factory Reset",
                 //   [&]() {
                 //       _destroy_menu = true;
