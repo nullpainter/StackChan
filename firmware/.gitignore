@@ -63,5 +63,10 @@ obj/
 
 sdkconfig
 sdkconfig.old
+sdkconfig.defaults.local
 
 xiaozhi-esp32/
+
+# Generated flash image for M5Burner and build logs
+stack-chan-merged.bin
+*.log

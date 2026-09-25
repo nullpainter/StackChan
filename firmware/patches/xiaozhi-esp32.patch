@@ -1,15 +1,393 @@
 diff --git a/main/application.cc b/main/application.cc
-index d69d43d..3b6f07e 100644
+index d69d43d..3b7d859 100644
 --- a/main/application.cc
 +++ b/main/application.cc
-@@ -610,33 +610,36 @@ void Application::InitializeProtocol() {
+@@ -1,25 +1,24 @@
+ #include "application.h"
++#include "assets.h"
++#include "assets/lang_config.h"
++#include "audio_codec.h"
+ #include "board.h"
+ #include "display.h"
+-#include "system_info.h"
+-#include "audio_codec.h"
+-#include "mqtt_protocol.h"
+-#include "websocket_protocol.h"
+-#include "assets/lang_config.h"
+ #include "mcp_server.h"
+-#include "assets.h"
++#include "mqtt_protocol.h"
+ #include "settings.h"
++#include "system_info.h"
++#include "websocket_protocol.h"
+ 
+-#include <cstring>
+-#include <esp_log.h>
+-#include <cJSON.h>
+ #include <driver/gpio.h>
++#include <esp_log.h>
+ #include <arpa/inet.h>
++#include <cJSON.h>
+ #include <font_awesome.h>
++#include <cstring>
+ 
+ #define TAG "Application"
+ 
+-
+ Application::Application() {
+     event_group_ = xEventGroupCreate();
+ 
+@@ -33,16 +32,16 @@ Application::Application() {
+     aec_mode_ = kAecOff;
+ #endif
+ 
+-    esp_timer_create_args_t clock_timer_args = {
+-        .callback = [](void* arg) {
+-            Application* app = (Application*)arg;
+-            xEventGroupSetBits(app->event_group_, MAIN_EVENT_CLOCK_TICK);
+-        },
+-        .arg = this,
+-        .dispatch_method = ESP_TIMER_TASK,
+-        .name = "clock_timer",
+-        .skip_unhandled_events = true
+-    };
++    esp_timer_create_args_t clock_timer_args = {.callback =
++                                                    [](void* arg) {
++                                                        Application* app = (Application*)arg;
++                                                        xEventGroupSetBits(app->event_group_,
++                                                                           MAIN_EVENT_CLOCK_TICK);
++                                                    },
++                                                .arg = this,
++                                                .dispatch_method = ESP_TIMER_TASK,
++                                                .name = "clock_timer",
++                                                .skip_unhandled_events = true};
+     esp_timer_create(&clock_timer_args, &clock_timer_handle_);
  }
  
- void Application::ShowActivationCode(const std::string& code, const std::string& message) {
--    struct digit_sound {
--        char digit;
--        const std::string_view& sound;
--    };
+@@ -54,9 +53,7 @@ Application::~Application() {
+     vEventGroupDelete(event_group_);
+ }
+ 
+-bool Application::SetDeviceState(DeviceState state) {
+-    return state_machine_.TransitionTo(state);
+-}
++bool Application::SetDeviceState(DeviceState state) { return state_machine_.TransitionTo(state); }
+ 
+ void Application::Initialize() {
+     auto& board = Board::GetInstance();
+@@ -101,7 +98,7 @@ void Application::Initialize() {
+     // Set network event callback for UI updates and network state handling
+     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
+         auto display = Board::GetInstance().GetDisplay();
+-        
++
+         switch (event) {
+             case NetworkEvent::Scanning:
+                 display->ShowNotification(Lang::Strings::SCANNING_WIFI, 30000);
+@@ -141,13 +138,16 @@ void Application::Initialize() {
+                 display->SetStatus(Lang::Strings::DETECTING_MODULE);
+                 break;
+             case NetworkEvent::ModemErrorNoSim:
+-                Alert(Lang::Strings::ERROR, Lang::Strings::PIN_ERROR, "triangle_exclamation", Lang::Sounds::OGG_ERR_PIN);
++                Alert(Lang::Strings::ERROR, Lang::Strings::PIN_ERROR, "triangle_exclamation",
++                      Lang::Sounds::OGG_ERR_PIN);
+                 break;
+             case NetworkEvent::ModemErrorRegDenied:
+-                Alert(Lang::Strings::ERROR, Lang::Strings::REG_ERROR, "triangle_exclamation", Lang::Sounds::OGG_ERR_REG);
++                Alert(Lang::Strings::ERROR, Lang::Strings::REG_ERROR, "triangle_exclamation",
++                      Lang::Sounds::OGG_ERR_REG);
+                 break;
+             case NetworkEvent::ModemErrorInitFailed:
+-                Alert(Lang::Strings::ERROR, Lang::Strings::MODEM_INIT_ERROR, "triangle_exclamation", Lang::Sounds::OGG_EXCLAMATION);
++                Alert(Lang::Strings::ERROR, Lang::Strings::MODEM_INIT_ERROR, "triangle_exclamation",
++                      Lang::Sounds::OGG_EXCLAMATION);
+                 break;
+             case NetworkEvent::ModemErrorTimeout:
+                 display->SetStatus(Lang::Strings::REGISTERING_NETWORK);
+@@ -166,19 +166,11 @@ void Application::Run() {
+     // Set the priority of the main task to 10
+     vTaskPrioritySet(nullptr, 10);
+ 
+-    const EventBits_t ALL_EVENTS = 
+-        MAIN_EVENT_SCHEDULE |
+-        MAIN_EVENT_SEND_AUDIO |
+-        MAIN_EVENT_WAKE_WORD_DETECTED |
+-        MAIN_EVENT_VAD_CHANGE |
+-        MAIN_EVENT_CLOCK_TICK |
+-        MAIN_EVENT_ERROR |
+-        MAIN_EVENT_NETWORK_CONNECTED |
+-        MAIN_EVENT_NETWORK_DISCONNECTED |
+-        MAIN_EVENT_TOGGLE_CHAT |
+-        MAIN_EVENT_START_LISTENING |
+-        MAIN_EVENT_STOP_LISTENING |
+-        MAIN_EVENT_ACTIVATION_DONE |
++    const EventBits_t ALL_EVENTS =
++        MAIN_EVENT_SCHEDULE | MAIN_EVENT_SEND_AUDIO | MAIN_EVENT_WAKE_WORD_DETECTED |
++        MAIN_EVENT_VAD_CHANGE | MAIN_EVENT_CLOCK_TICK | MAIN_EVENT_ERROR |
++        MAIN_EVENT_NETWORK_CONNECTED | MAIN_EVENT_NETWORK_DISCONNECTED | MAIN_EVENT_TOGGLE_CHAT |
++        MAIN_EVENT_START_LISTENING | MAIN_EVENT_STOP_LISTENING | MAIN_EVENT_ACTIVATION_DONE |
+         MAIN_EVENT_STATE_CHANGED;
+ 
+     while (true) {
+@@ -186,7 +178,8 @@ void Application::Run() {
+ 
+         if (bits & MAIN_EVENT_ERROR) {
+             SetDeviceState(kDeviceStateIdle);
+-            Alert(Lang::Strings::ERROR, last_error_message_.c_str(), "circle_xmark", Lang::Sounds::OGG_EXCLAMATION);
++            Alert(Lang::Strings::ERROR, last_error_message_.c_str(), "circle_xmark",
++                  Lang::Sounds::OGG_EXCLAMATION);
+         }
+ 
+         if (bits & MAIN_EVENT_NETWORK_CONNECTED) {
+@@ -249,7 +242,7 @@ void Application::Run() {
+             clock_ticks_++;
+             auto display = Board::GetInstance().GetDisplay();
+             display->UpdateStatusBar();
+-        
++
+             // Print debug info every 10 seconds
+             if (clock_ticks_ % 10 == 0) {
+                 SystemInfo::PrintHeapStats();
+@@ -270,12 +263,14 @@ void Application::HandleNetworkConnectedEvent() {
+             return;
+         }
+ 
+-        xTaskCreate([](void* arg) {
+-            Application* app = static_cast<Application*>(arg);
+-            app->ActivationTask();
+-            app->activation_task_handle_ = nullptr;
+-            vTaskDelete(NULL);
+-        }, "activation", 4096 * 2, this, 2, &activation_task_handle_);
++        xTaskCreate(
++            [](void* arg) {
++                Application* app = static_cast<Application*>(arg);
++                app->ActivationTask();
++                app->activation_task_handle_ = nullptr;
++                vTaskDelete(NULL);
++            },
++            "activation", 4096 * 2, this, 2, &activation_task_handle_);
+     }
+ 
+     // Update the status bar immediately to show the network state
+@@ -286,7 +281,8 @@ void Application::HandleNetworkConnectedEvent() {
+ void Application::HandleNetworkDisconnectedEvent() {
+     // Close current conversation when network disconnected
+     auto state = GetDeviceState();
+-    if (state == kDeviceStateConnecting || state == kDeviceStateListening || state == kDeviceStateSpeaking) {
++    if (state == kDeviceStateConnecting || state == kDeviceStateListening ||
++        state == kDeviceStateSpeaking) {
+         ESP_LOGI(TAG, "Closing audio channel due to network disconnection");
+         protocol_->CloseAudioChannel();
+     }
+@@ -352,7 +348,7 @@ void Application::CheckAssetsVersion() {
+         ESP_LOGW(TAG, "Assets partition is disabled for board %s", BOARD_NAME);
+         return;
+     }
+-    
++
+     Settings settings("assets", true);
+     // Check if there is a new assets need to be downloaded
+     std::string download_url = settings.GetString("download_url");
+@@ -362,27 +358,30 @@ void Application::CheckAssetsVersion() {
+ 
+         char message[256];
+         snprintf(message, sizeof(message), Lang::Strings::FOUND_NEW_ASSETS, download_url.c_str());
+-        Alert(Lang::Strings::LOADING_ASSETS, message, "cloud_arrow_down", Lang::Sounds::OGG_UPGRADE);
+-        
++        Alert(Lang::Strings::LOADING_ASSETS, message, "cloud_arrow_down",
++              Lang::Sounds::OGG_UPGRADE);
++
+         // Wait for the audio service to be idle for 3 seconds
+         vTaskDelay(pdMS_TO_TICKS(3000));
+         SetDeviceState(kDeviceStateUpgrading);
+         board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+         display->SetChatMessage("system", Lang::Strings::PLEASE_WAIT);
+ 
+-        bool success = assets.Download(download_url, [this, display](int progress, size_t speed) -> void {
+-            char buffer[32];
+-            snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
+-            Schedule([display, message = std::string(buffer)]() {
+-                display->SetChatMessage("system", message.c_str());
++        bool success =
++            assets.Download(download_url, [this, display](int progress, size_t speed) -> void {
++                char buffer[32];
++                snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
++                Schedule([display, message = std::string(buffer)]() {
++                    display->SetChatMessage("system", message.c_str());
++                });
+             });
+-        });
+ 
+         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+         vTaskDelay(pdMS_TO_TICKS(1000));
+ 
+         if (!success) {
+-            Alert(Lang::Strings::ERROR, Lang::Strings::DOWNLOAD_ASSETS_FAILED, "circle_xmark", Lang::Sounds::OGG_EXCLAMATION);
++            Alert(Lang::Strings::ERROR, Lang::Strings::DOWNLOAD_ASSETS_FAILED, "circle_xmark",
++                  Lang::Sounds::OGG_EXCLAMATION);
+             vTaskDelay(pdMS_TO_TICKS(2000));
+             SetDeviceState(kDeviceStateActivating);
+             return;
+@@ -398,12 +397,14 @@ void Application::CheckAssetsVersion() {
+ void Application::CheckNewVersion() {
+     const int MAX_RETRY = 10;
+     int retry_count = 0;
+-    int retry_delay = 10; // Initial retry delay in seconds
++    int retry_delay = 10;  // Initial retry delay in seconds
+ 
+     auto& board = Board::GetInstance();
+     while (true) {
+         auto display = board.GetDisplay();
+-        display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
++        // Not "checking for new version": auto-upgrade is disabled in this build, so this
++        // request only fetches the activation state and server configuration.
++        display->SetStatus(Lang::Strings::CONNECTING);
+ 
+         esp_err_t err = ota_->CheckVersion();
+         if (err != ESP_OK) {
+@@ -414,32 +415,37 @@ void Application::CheckNewVersion() {
+             }
+ 
+             char error_message[128];
+-            snprintf(error_message, sizeof(error_message), "code=%d, url=%s", err, ota_->GetCheckVersionUrl().c_str());
++            snprintf(error_message, sizeof(error_message), "code=%d, url=%s", err,
++                     ota_->GetCheckVersionUrl().c_str());
+             char buffer[256];
+-            snprintf(buffer, sizeof(buffer), Lang::Strings::CHECK_NEW_VERSION_FAILED, retry_delay, error_message);
++            snprintf(buffer, sizeof(buffer), Lang::Strings::CHECK_NEW_VERSION_FAILED, retry_delay,
++                     error_message);
+             Alert(Lang::Strings::ERROR, buffer, "cloud_slash", Lang::Sounds::OGG_EXCLAMATION);
+ 
+-            ESP_LOGW(TAG, "Check new version failed, retry in %d seconds (%d/%d)", retry_delay, retry_count, MAX_RETRY);
++            ESP_LOGW(TAG, "Check new version failed, retry in %d seconds (%d/%d)", retry_delay,
++                     retry_count, MAX_RETRY);
+             for (int i = 0; i < retry_delay; i++) {
+                 vTaskDelay(pdMS_TO_TICKS(1000));
+                 if (GetDeviceState() == kDeviceStateIdle) {
+                     break;
+                 }
+             }
+-            retry_delay *= 2; // Double the retry delay
++            retry_delay *= 2;  // Double the retry delay
+             continue;
+         }
+         retry_count = 0;
+-        retry_delay = 10; // Reset retry delay
++        retry_delay = 10;  // Reset retry delay
+ 
++        // Auto-upgrade is intentionally disabled in this custom build: accepting an
++        // upstream OTA image would silently replace this firmware. The version check
++        // itself is still performed because the same response carries the activation
++        // state and the server (websocket/MQTT) configuration.
+         if (ota_->HasNewVersion()) {
+-            if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
+-                return; // This line will never be reached after reboot
+-            }
+-            // If upgrade failed, continue to normal operation
++            ESP_LOGI(TAG, "New firmware version available (%s), but auto-upgrade is disabled",
++                     ota_->GetFirmwareVersion().c_str());
+         }
+ 
+-        // No new version, mark the current version as valid
++        // Mark the current version as valid so the bootloader does not roll it back
+         ota_->MarkCurrentVersionValid();
+         if (!ota_->HasActivationCode() && !ota_->HasActivationChallenge()) {
+             // Exit the loop if done checking new version
+@@ -486,29 +492,29 @@ void Application::InitializeProtocol() {
+         protocol_ = std::make_unique<MqttProtocol>();
+     }
+ 
+-    protocol_->OnConnected([this]() {
+-        DismissAlert();
+-    });
++    protocol_->OnConnected([this]() { DismissAlert(); });
+ 
+     protocol_->OnNetworkError([this](const std::string& message) {
+         last_error_message_ = message;
+         xEventGroupSetBits(event_group_, MAIN_EVENT_ERROR);
+     });
+-    
++
+     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
+         if (GetDeviceState() == kDeviceStateSpeaking) {
+             audio_service_.PushPacketToDecodeQueue(std::move(packet));
+         }
+     });
+-    
++
+     protocol_->OnAudioChannelOpened([this, codec, &board]() {
+         board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+         if (protocol_->server_sample_rate() != codec->output_sample_rate()) {
+-            ESP_LOGW(TAG, "Server sample rate %d does not match device output sample rate %d, resampling may cause distortion",
+-                protocol_->server_sample_rate(), codec->output_sample_rate());
++            ESP_LOGW(TAG,
++                     "Server sample rate %d does not match device output sample rate %d, "
++                     "resampling may cause distortion",
++                     protocol_->server_sample_rate(), codec->output_sample_rate());
+         }
+     });
+-    
++
+     protocol_->OnAudioChannelClosed([this, &board]() {
+         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+         Schedule([this]() {
+@@ -517,7 +523,7 @@ void Application::InitializeProtocol() {
+             SetDeviceState(kDeviceStateIdle);
+         });
+     });
+-    
++
+     protocol_->OnIncomingJson([this, display](const cJSON* root) {
+         // Parse JSON data
+         auto type = cJSON_GetObjectItem(root, "type");
+@@ -573,9 +579,7 @@ void Application::InitializeProtocol() {
+                 ESP_LOGI(TAG, "System command: %s", command->valuestring);
+                 if (strcmp(command->valuestring, "reboot") == 0) {
+                     // Do a reboot if user requests a OTA update
+-                    Schedule([this]() {
+-                        Reboot();
+-                    });
++                    Schedule([this]() { Reboot(); });
+                 } else {
+                     ESP_LOGW(TAG, "Unknown system command: %s", command->valuestring);
+                 }
+@@ -585,7 +589,8 @@ void Application::InitializeProtocol() {
+             auto message = cJSON_GetObjectItem(root, "message");
+             auto emotion = cJSON_GetObjectItem(root, "emotion");
+             if (cJSON_IsString(status) && cJSON_IsString(message) && cJSON_IsString(emotion)) {
+-                Alert(status->valuestring, message->valuestring, emotion->valuestring, Lang::Sounds::OGG_VIBRATION);
++                Alert(status->valuestring, message->valuestring, emotion->valuestring,
++                      Lang::Sounds::OGG_VIBRATION);
+             } else {
+                 ESP_LOGW(TAG, "Alert command requires status, message and emotion");
+             }
+@@ -594,9 +599,10 @@ void Application::InitializeProtocol() {
+             auto payload = cJSON_GetObjectItem(root, "payload");
+             ESP_LOGI(TAG, "Received custom message: %s", cJSON_PrintUnformatted(root));
+             if (cJSON_IsObject(payload)) {
+-                Schedule([this, display, payload_str = std::string(cJSON_PrintUnformatted(payload))]() {
+-                    display->SetChatMessage("system", payload_str.c_str());
+-                });
++                Schedule(
++                    [this, display, payload_str = std::string(cJSON_PrintUnformatted(payload))]() {
++                        display->SetChatMessage("system", payload_str.c_str());
++                    });
+             } else {
+                 ESP_LOGW(TAG, "Invalid custom message format: missing payload");
+             }
+@@ -605,7 +611,7 @@ void Application::InitializeProtocol() {
+             ESP_LOGW(TAG, "Unknown message type: %s", type->valuestring);
+         }
+     });
+-    
++
+     protocol_->Start();
+ }
+ 
+@@ -614,32 +620,27 @@ void Application::ShowActivationCode(const std::string& code, const std::string&
+         char digit;
+         const std::string_view& sound;
+     };
 -    static const std::array<digit_sound, 10> digit_sounds{{
 -        digit_sound{'0', Lang::Sounds::OGG_0},
 -        digit_sound{'1', Lang::Sounds::OGG_1}, 
@@ -22,252 +400,830 @@ index d69d43d..3b6f07e 100644
 -        digit_sound{'8', Lang::Sounds::OGG_8},
 -        digit_sound{'9', Lang::Sounds::OGG_9}
 -    }};
--
--    // This sentence uses 9KB of SRAM, so we need to wait for it to finish
--    Alert(Lang::Strings::ACTIVATION, message.c_str(), "link", Lang::Sounds::OGG_ACTIVATION);
--
--    for (const auto& digit : code) {
--        auto it = std::find_if(digit_sounds.begin(), digit_sounds.end(),
++    static const std::array<digit_sound, 10> digit_sounds{
++        {digit_sound{'0', Lang::Sounds::OGG_0}, digit_sound{'1', Lang::Sounds::OGG_1},
++         digit_sound{'2', Lang::Sounds::OGG_2}, digit_sound{'3', Lang::Sounds::OGG_3},
++         digit_sound{'4', Lang::Sounds::OGG_4}, digit_sound{'5', Lang::Sounds::OGG_5},
++         digit_sound{'6', Lang::Sounds::OGG_6}, digit_sound{'7', Lang::Sounds::OGG_7},
++         digit_sound{'8', Lang::Sounds::OGG_8}, digit_sound{'9', Lang::Sounds::OGG_9}}};
+ 
+     // This sentence uses 9KB of SRAM, so we need to wait for it to finish
+     Alert(Lang::Strings::ACTIVATION, message.c_str(), "link", Lang::Sounds::OGG_ACTIVATION);
+ 
+     for (const auto& digit : code) {
+         auto it = std::find_if(digit_sounds.begin(), digit_sounds.end(),
 -            [digit](const digit_sound& ds) { return ds.digit == digit; });
--        if (it != digit_sounds.end()) {
--            audio_service_.PlaySound(it->sound);
--        }
--    }
-+    // struct digit_sound {
-+    //     char digit;
-+    //     const std::string_view& sound;
-+    // };
-+    // static const std::array<digit_sound, 10> digit_sounds{{
-+    //     digit_sound{'0', Lang::Sounds::OGG_0},
-+    //     digit_sound{'1', Lang::Sounds::OGG_1}, 
-+    //     digit_sound{'2', Lang::Sounds::OGG_2},
-+    //     digit_sound{'3', Lang::Sounds::OGG_3},
-+    //     digit_sound{'4', Lang::Sounds::OGG_4},
-+    //     digit_sound{'5', Lang::Sounds::OGG_5},
-+    //     digit_sound{'6', Lang::Sounds::OGG_6},
-+    //     digit_sound{'7', Lang::Sounds::OGG_7},
-+    //     digit_sound{'8', Lang::Sounds::OGG_8},
-+    //     digit_sound{'9', Lang::Sounds::OGG_9}
-+    // }};
-+
-+    // // This sentence uses 9KB of SRAM, so we need to wait for it to finish
-+    // Alert(Lang::Strings::ACTIVATION, message.c_str(), "link", Lang::Sounds::OGG_ACTIVATION);
-+
-+    // for (const auto& digit : code) {
-+    //     auto it = std::find_if(digit_sounds.begin(), digit_sounds.end(),
-+    //         [digit](const digit_sound& ds) { return ds.digit == digit; });
-+    //     if (it != digit_sounds.end()) {
-+    //         audio_service_.PlaySound(it->sound);
-+    //     }
-+    // }
-+
-+    auto display = Board::GetInstance().GetDisplay();
-+    display->SetChatMessage("system", "Please bind and set up in the mobile app.");
++                               [digit](const digit_sound& ds) { return ds.digit == digit; });
+         if (it != digit_sounds.end()) {
+             audio_service_.PlaySound(it->sound);
+         }
+     }
  }
  
- void Application::Alert(const char* status, const char* message, const char* emotion, const std::string_view& sound) {
-diff --git a/main/assets.cc b/main/assets.cc
-index ad61944..6b84daf 100644
---- a/main/assets.cc
-+++ b/main/assets.cc
-@@ -3,8 +3,8 @@
- #include "display.h"
+-void Application::Alert(const char* status, const char* message, const char* emotion, const std::string_view& sound) {
++void Application::Alert(const char* status, const char* message, const char* emotion,
++                        const std::string_view& sound) {
+     ESP_LOGW(TAG, "Alert [%s] %s: %s", emotion, status, message);
+     auto display = Board::GetInstance().GetDisplay();
+     display->SetStatus(status);
+@@ -659,21 +660,29 @@ void Application::DismissAlert() {
+     }
+ }
+ 
+-void Application::ToggleChatState() {
+-    xEventGroupSetBits(event_group_, MAIN_EVENT_TOGGLE_CHAT);
+-}
++void Application::ToggleChatState() { xEventGroupSetBits(event_group_, MAIN_EVENT_TOGGLE_CHAT); }
+ 
+-void Application::StartListening() {
+-    xEventGroupSetBits(event_group_, MAIN_EVENT_START_LISTENING);
++void Application::ExitChatMode() {
++    Schedule([this]() {
++        if (!protocol_) {
++            return;
++        }
++        if (GetDeviceState() == kDeviceStateSpeaking) {
++            AbortSpeaking(kAbortReasonNone);
++        }
++        if (protocol_->IsAudioChannelOpened()) {
++            protocol_->CloseAudioChannel();
++        }
++    });
+ }
+ 
+-void Application::StopListening() {
+-    xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING);
+-}
++void Application::StartListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_START_LISTENING); }
++
++void Application::StopListening() { xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING); }
+ 
+ void Application::HandleToggleChatEvent() {
+     auto state = GetDeviceState();
+-    
++
+     if (state == kDeviceStateActivating) {
+         SetDeviceState(kDeviceStateIdle);
+         return;
+@@ -697,9 +706,7 @@ void Application::HandleToggleChatEvent() {
+         if (!protocol_->IsAudioChannelOpened()) {
+             SetDeviceState(kDeviceStateConnecting);
+             // Schedule to let the state change be processed first (UI update)
+-            Schedule([this, mode]() {
+-                ContinueOpenAudioChannel(mode);
+-            });
++            Schedule([this, mode]() { ContinueOpenAudioChannel(mode); });
+             return;
+         }
+         SetListeningMode(mode);
+@@ -727,7 +734,7 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
+ 
+ void Application::HandleStartListeningEvent() {
+     auto state = GetDeviceState();
+-    
++
+     if (state == kDeviceStateActivating) {
+         SetDeviceState(kDeviceStateIdle);
+         return;
+@@ -741,14 +748,12 @@ void Application::HandleStartListeningEvent() {
+         ESP_LOGE(TAG, "Protocol not initialized");
+         return;
+     }
+-    
++
+     if (state == kDeviceStateIdle) {
+         if (!protocol_->IsAudioChannelOpened()) {
+             SetDeviceState(kDeviceStateConnecting);
+             // Schedule to let the state change be processed first (UI update)
+-            Schedule([this]() {
+-                ContinueOpenAudioChannel(kListeningModeManualStop);
+-            });
++            Schedule([this]() { ContinueOpenAudioChannel(kListeningModeManualStop); });
+             return;
+         }
+         SetListeningMode(kListeningModeManualStop);
+@@ -760,7 +765,7 @@ void Application::HandleStartListeningEvent() {
+ 
+ void Application::HandleStopListeningEvent() {
+     auto state = GetDeviceState();
+-    
++
+     if (state == kDeviceStateAudioTesting) {
+         audio_service_.EnableAudioTesting(false);
+         SetDeviceState(kDeviceStateWifiConfiguring);
+@@ -790,9 +795,7 @@ void Application::HandleWakeWordDetectedEvent() {
+             SetDeviceState(kDeviceStateConnecting);
+             // Schedule to let the state change be processed first (UI update),
+             // then continue with OpenAudioChannel which may block for ~1 second
+-            Schedule([this, wake_word]() {
+-                ContinueWakeWordInvoke(wake_word);
+-            });
++            Schedule([this, wake_word]() { ContinueWakeWordInvoke(wake_word); });
+             return;
+         }
+         // Channel already opened, continue directly
+@@ -800,7 +803,8 @@ void Application::HandleWakeWordDetectedEvent() {
+     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
+         AbortSpeaking(kAbortReasonWakeWordDetected);
+         // Clear send queue to avoid sending residues to server
+-        while (audio_service_.PopPacketFromSendQueue());
++        while (audio_service_.PopPacketFromSendQueue())
++            ;
+ 
+         if (state == kDeviceStateListening) {
+             protocol_->SendStartListening(GetDefaultListeningMode());
+@@ -860,13 +864,13 @@ void Application::HandleStateChangedEvent() {
+     auto display = board.GetDisplay();
+     auto led = board.GetLed();
+     led->OnStateChanged();
+-    
++
+     switch (new_state) {
+         case kDeviceStateUnknown:
+         case kDeviceStateIdle:
+             display->SetStatus(Lang::Strings::STANDBY);
+-            display->ClearChatMessages();  // Clear messages first
+-            display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
++            display->ClearChatMessages();    // Clear messages first
++            display->SetEmotion("neutral");  // Then set emotion (wechat mode checks child count)
+             audio_service_.EnableVoiceProcessing(false);
+             audio_service_.EnableWakeWordDetection(true);
+             break;
+@@ -881,12 +885,13 @@ void Application::HandleStateChangedEvent() {
+ 
+             // Make sure the audio processor is running
+             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
+-                // For auto mode, wait for playback queue to be empty before enabling voice processing
+-                // This prevents audio truncation when STOP arrives late due to network jitter
++                // For auto mode, wait for playback queue to be empty before enabling voice
++                // processing This prevents audio truncation when STOP arrives late due to network
++                // jitter
+                 if (listening_mode_ == kListeningModeAutoStop) {
+                     audio_service_.WaitForPlaybackQueueEmpty();
+                 }
+-                
++
+                 // Send the start listening command
+                 protocol_->SendStartListening(listening_mode_);
+                 audio_service_.EnableVoiceProcessing(true);
+@@ -899,7 +904,7 @@ void Application::HandleStateChangedEvent() {
+             // Disable wake word detection in listening mode
+             audio_service_.EnableWakeWordDetection(false);
+ #endif
+-            
++
+             // Play popup sound after ResetDecoder (in EnableVoiceProcessing) has been called
+             if (play_popup_on_listening_) {
+                 play_popup_on_listening_ = false;
+@@ -978,7 +983,8 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
+     }
+     ESP_LOGI(TAG, "Starting firmware upgrade from URL: %s", upgrade_url.c_str());
+ 
+-    Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "download", Lang::Sounds::OGG_UPGRADE);
++    Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "download",
++          Lang::Sounds::OGG_UPGRADE);
+     vTaskDelay(pdMS_TO_TICKS(3000));
+ 
+     SetDeviceState(kDeviceStateUpgrading);
+@@ -1000,17 +1006,19 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
+ 
+     if (!upgrade_success) {
+         // Upgrade failed, restart audio service and continue running
+-        ESP_LOGE(TAG, "Firmware upgrade failed, restarting audio service and continuing operation...");
+-        audio_service_.Start(); // Restart audio service
+-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER); // Restore power save level
+-        Alert(Lang::Strings::ERROR, Lang::Strings::UPGRADE_FAILED, "circle_xmark", Lang::Sounds::OGG_EXCLAMATION);
++        ESP_LOGE(TAG,
++                 "Firmware upgrade failed, restarting audio service and continuing operation...");
++        audio_service_.Start();                              // Restart audio service
++        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);  // Restore power save level
++        Alert(Lang::Strings::ERROR, Lang::Strings::UPGRADE_FAILED, "circle_xmark",
++              Lang::Sounds::OGG_EXCLAMATION);
+         vTaskDelay(pdMS_TO_TICKS(3000));
+         return false;
+     } else {
+         // Upgrade success, reboot immediately
+         ESP_LOGI(TAG, "Firmware upgrade successful, rebooting...");
+         display->SetChatMessage("system", "Upgrade successful, rebooting...");
+-        vTaskDelay(pdMS_TO_TICKS(1000)); // Brief pause to show message
++        vTaskDelay(pdMS_TO_TICKS(1000));  // Brief pause to show message
+         Reboot();
+         return true;
+     }
+@@ -1022,25 +1030,21 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
+     }
+ 
+     auto state = GetDeviceState();
+-    
++
+     if (state == kDeviceStateIdle) {
+         audio_service_.EncodeWakeWord();
+ 
+         if (!protocol_->IsAudioChannelOpened()) {
+             SetDeviceState(kDeviceStateConnecting);
+             // Schedule to let the state change be processed first (UI update)
+-            Schedule([this, wake_word]() {
+-                ContinueWakeWordInvoke(wake_word);
+-            });
++            Schedule([this, wake_word]() { ContinueWakeWordInvoke(wake_word); });
+             return;
+         }
+         // Channel already opened, continue directly
+         ContinueWakeWordInvoke(wake_word);
+     } else if (state == kDeviceStateSpeaking) {
+-        Schedule([this]() {
+-            AbortSpeaking(kAbortReasonNone);
+-        });
+-    } else if (state == kDeviceStateListening) {   
++        Schedule([this]() { AbortSpeaking(kAbortReasonNone); });
++    } else if (state == kDeviceStateListening) {
+         Schedule([this]() {
+             if (protocol_) {
+                 protocol_->CloseAudioChannel();
+@@ -1081,18 +1085,18 @@ void Application::SetAecMode(AecMode mode) {
+         auto& board = Board::GetInstance();
+         auto display = board.GetDisplay();
+         switch (aec_mode_) {
+-        case kAecOff:
+-            audio_service_.EnableDeviceAec(false);
+-            display->ShowNotification(Lang::Strings::RTC_MODE_OFF);
+-            break;
+-        case kAecOnServerSide:
+-            audio_service_.EnableDeviceAec(false);
+-            display->ShowNotification(Lang::Strings::RTC_MODE_ON);
+-            break;
+-        case kAecOnDeviceSide:
+-            audio_service_.EnableDeviceAec(true);
+-            display->ShowNotification(Lang::Strings::RTC_MODE_ON);
+-            break;
++            case kAecOff:
++                audio_service_.EnableDeviceAec(false);
++                display->ShowNotification(Lang::Strings::RTC_MODE_OFF);
++                break;
++            case kAecOnServerSide:
++                audio_service_.EnableDeviceAec(false);
++                display->ShowNotification(Lang::Strings::RTC_MODE_ON);
++                break;
++            case kAecOnDeviceSide:
++                audio_service_.EnableDeviceAec(true);
++                display->ShowNotification(Lang::Strings::RTC_MODE_ON);
++                break;
+         }
+ 
+         // If the AEC mode is changed, close the audio channel
+@@ -1102,9 +1106,7 @@ void Application::SetAecMode(AecMode mode) {
+     });
+ }
+ 
+-void Application::PlaySound(const std::string_view& sound) {
+-    audio_service_.PlaySound(sound);
+-}
++void Application::PlaySound(const std::string_view& sound) { audio_service_.PlaySound(sound); }
+ 
+ void Application::ResetProtocol() {
+     Schedule([this]() {
+@@ -1116,4 +1118,3 @@ void Application::ResetProtocol() {
+         protocol_.reset();
+     });
+ }
+-
+diff --git a/main/application.h b/main/application.h
+index 7ca7af4..7f3e83d 100644
+--- a/main/application.h
++++ b/main/application.h
+@@ -91,6 +91,12 @@ public:
+      */
+     void ToggleChatState();
+ 
++    /**
++     * Leave the conversation entirely (thread-safe)
++     * Aborts any ongoing speech and closes the audio channel, returning to idle
++     */
++    void ExitChatMode();
++
+     /**
+      * Start listening (event-based, thread-safe)
+      * Sends MAIN_EVENT_START_LISTENING to be handled in Run()
+diff --git a/main/mcp_server.cc b/main/mcp_server.cc
+index 7cd7ba0..8dcb872 100644
+--- a/main/mcp_server.cc
++++ b/main/mcp_server.cc
+@@ -4,24 +4,23 @@
+  */
+ 
+ #include "mcp_server.h"
+-#include <esp_log.h>
+ #include <esp_app_desc.h>
++#include <esp_log.h>
++#include <esp_pthread.h>
+ #include <algorithm>
+ #include <cstring>
+-#include <esp_pthread.h>
+ 
  #include "application.h"
- #include "lvgl_theme.h"
--#include "emote_display.h"
--#include "expression_emote.h"
-+// #include "emote_display.h"
-+// #include "expression_emote.h"
- #if HAVE_LVGL
- #include "display/lcd_display.h"
- #include <spi_flash_mmap.h>
-@@ -356,72 +356,72 @@ bool Assets::LvglStrategy::Apply(Assets* assets) {
- }
- #endif // HAVE_LVGL
++#include "board.h"
+ #include "display.h"
++#include "lvgl_display.h"
++#include "lvgl_theme.h"
+ #include "oled_display.h"
+-#include "board.h"
+ #include "settings.h"
+-#include "lvgl_theme.h"
+-#include "lvgl_display.h"
  
--bool Assets::EmoteStrategy::InitializePartition(Assets* assets) {
--    assets->partition_valid_ = false;
--
--    if (!Assets::FindPartition(assets)) {
--        return false;
--    }
--
--    esp_err_t ret = ESP_ERR_INVALID_STATE;
--    auto display = Board::GetInstance().GetDisplay();
--    auto* emote_display = dynamic_cast<emote::EmoteDisplay*>(display);
--    if (emote_display && emote_display->GetEmoteHandle() != nullptr) {
--        const emote_data_t data = {
--            .type = EMOTE_SOURCE_PARTITION,
--            .source = {
--                .partition_label = PARTITION_LABEL,
--            },
--            .flags = {
--                .mmap_enable = true, //must be true here!!!
--            },
--        };
--        ret = emote_mount_assets(emote_display->GetEmoteHandle(), &data);
--    } else {
--        ESP_LOGE(TAG, "Emote display is not initialized");
--    }
--    assets->partition_valid_ = ((ret == ESP_OK) ? true : false);
--    return assets->partition_valid_;
+ #define TAG "MCP"
+ 
+-McpServer::McpServer() {
 -}
++McpServer::McpServer() {}
+ 
+ McpServer::~McpServer() {
+     for (auto tool : tools_) {
+@@ -43,81 +42,77 @@ void McpServer::AddCommonTools() {
+     // Custom tools must be added in the board's InitializeTools function.
+ 
+     AddTool("self.get_device_status",
+-        "Provides the real-time information of the device, including the current status of the audio speaker, screen, battery, network, etc.\n"
+-        "Use this tool for: \n"
+-        "1. Answering questions about current condition (e.g. what is the current volume of the audio speaker?)\n"
+-        "2. As the first step to control the device (e.g. turn up / down the volume of the audio speaker, etc.)",
+-        PropertyList(),
+-        [&board](const PropertyList& properties) -> ReturnValue {
+-            return board.GetDeviceStatusJson();
+-        });
 -
--void Assets::EmoteStrategy::UnApplyPartition(Assets* assets) {
--    auto display = Board::GetInstance().GetDisplay();
--    auto* emote_display = dynamic_cast<emote::EmoteDisplay*>(display);
--    if (emote_display && emote_display->GetEmoteHandle() != nullptr) {
--        emote_unmount_assets(emote_display->GetEmoteHandle());
--    }
--    (void)assets; // Unused parameter
--}
--
--bool Assets::EmoteStrategy::GetAssetData(Assets* assets, const std::string& name, void*& ptr, size_t& size) {
--    auto display = Board::GetInstance().GetDisplay();
--    auto* emote_display = dynamic_cast<emote::EmoteDisplay*>(display);
--    if (emote_display && emote_display->GetEmoteHandle() != nullptr) {
--        const uint8_t* data = nullptr;
--        size_t data_size = 0;
--        if (ESP_OK == emote_get_asset_data_by_name(emote_display->GetEmoteHandle(), name.c_str(), &data, &data_size)) {
--            ptr = const_cast<void*>(static_cast<const void*>(data));
--            size = data_size;
+-    AddTool("self.audio_speaker.set_volume", 
+-        "Set the volume of the audio speaker. If the current volume is unknown, you must call `self.get_device_status` tool first and then call this tool.",
+-        PropertyList({
+-            Property("volume", kPropertyTypeInteger, 0, 100)
+-        }), 
+-        [&board](const PropertyList& properties) -> ReturnValue {
+-            auto codec = board.GetAudioCodec();
+-            codec->SetOutputVolume(properties["volume"].value<int>());
 -            return true;
--        }
--        ESP_LOGE(TAG, "Failed to get asset data by name: %s", name.c_str());
--        return false;
--    }
--    (void)assets; // Unused parameter
--    return false;
--}
--
--bool Assets::EmoteStrategy::Apply(Assets* assets) {
--    Assets::LoadSrmodelsFromIndex(assets);
--
--    auto display = Board::GetInstance().GetDisplay();
--    auto* emote_display = dynamic_cast<emote::EmoteDisplay*>(display);
--
--    if (emote_display && emote_display->GetEmoteHandle() != nullptr) {
--        emote_load_assets(emote_display->GetEmoteHandle());
--    }
--    return true;
--}
-+// bool Assets::EmoteStrategy::InitializePartition(Assets* assets) {
-+//     assets->partition_valid_ = false;
+-        });
+-    
+-    auto backlight = board.GetBacklight();
+-    if (backlight) {
+-        AddTool("self.screen.set_brightness",
+-            "Set the brightness of the screen.",
+-            PropertyList({
+-                Property("brightness", kPropertyTypeInteger, 0, 100)
+-            }),
+-            [backlight](const PropertyList& properties) -> ReturnValue {
+-                uint8_t brightness = static_cast<uint8_t>(properties["brightness"].value<int>());
+-                backlight->SetBrightness(brightness, true);
++            "Provides the real-time information of the device, including the current status of the "
++            "audio speaker, screen, battery, network, etc.\n"
++            "Use this tool for: \n"
++            "1. Answering questions about current condition (e.g. what is the current volume of "
++            "the audio speaker?)\n"
++            "2. As the first step to control the device (e.g. turn up / down the volume of the "
++            "audio speaker, etc.)",
++            PropertyList(), [&board](const PropertyList& properties) -> ReturnValue {
++                return board.GetDeviceStatusJson();
++            });
 +
-+//     if (!Assets::FindPartition(assets)) {
-+//         return false;
-+//     }
++    AddTool("self.audio_speaker.set_volume",
++            "Set the volume of the audio speaker. If the current volume is unknown, you must call "
++            "`self.get_device_status` tool first and then call this tool.",
++            PropertyList({Property("volume", kPropertyTypeInteger, 0, 100)}),
++            [&board](const PropertyList& properties) -> ReturnValue {
++                auto codec = board.GetAudioCodec();
++                codec->SetOutputVolume(properties["volume"].value<int>());
+                 return true;
+             });
 +
-+//     esp_err_t ret = ESP_ERR_INVALID_STATE;
-+//     auto display = Board::GetInstance().GetDisplay();
-+//     auto* emote_display = dynamic_cast<emote::EmoteDisplay*>(display);
-+//     if (emote_display && emote_display->GetEmoteHandle() != nullptr) {
-+//         const emote_data_t data = {
-+//             .type = EMOTE_SOURCE_PARTITION,
-+//             .source = {
-+//                 .partition_label = PARTITION_LABEL,
-+//             },
-+//             .flags = {
-+//                 .mmap_enable = true, //must be true here!!!
-+//             },
-+//         };
-+//         ret = emote_mount_assets(emote_display->GetEmoteHandle(), &data);
-+//     } else {
-+//         ESP_LOGE(TAG, "Emote display is not initialized");
-+//     }
-+//     assets->partition_valid_ = ((ret == ESP_OK) ? true : false);
-+//     return assets->partition_valid_;
-+// }
-+
-+// void Assets::EmoteStrategy::UnApplyPartition(Assets* assets) {
-+//     auto display = Board::GetInstance().GetDisplay();
-+//     auto* emote_display = dynamic_cast<emote::EmoteDisplay*>(display);
-+//     if (emote_display && emote_display->GetEmoteHandle() != nullptr) {
-+//         emote_unmount_assets(emote_display->GetEmoteHandle());
-+//     }
-+//     (void)assets; // Unused parameter
-+// }
-+
-+// bool Assets::EmoteStrategy::GetAssetData(Assets* assets, const std::string& name, void*& ptr, size_t& size) {
-+//     auto display = Board::GetInstance().GetDisplay();
-+//     auto* emote_display = dynamic_cast<emote::EmoteDisplay*>(display);
-+//     if (emote_display && emote_display->GetEmoteHandle() != nullptr) {
-+//         const uint8_t* data = nullptr;
-+//         size_t data_size = 0;
-+//         if (ESP_OK == emote_get_asset_data_by_name(emote_display->GetEmoteHandle(), name.c_str(), &data, &data_size)) {
-+//             ptr = const_cast<void*>(static_cast<const void*>(data));
-+//             size = data_size;
-+//             return true;
-+//         }
-+//         ESP_LOGE(TAG, "Failed to get asset data by name: %s", name.c_str());
-+//         return false;
-+//     }
-+//     (void)assets; // Unused parameter
-+//     return false;
-+// }
-+
-+// bool Assets::EmoteStrategy::Apply(Assets* assets) {
-+//     Assets::LoadSrmodelsFromIndex(assets);
-+
-+//     auto display = Board::GetInstance().GetDisplay();
-+//     auto* emote_display = dynamic_cast<emote::EmoteDisplay*>(display);
-+
-+//     if (emote_display && emote_display->GetEmoteHandle() != nullptr) {
-+//         emote_load_assets(emote_display->GetEmoteHandle());
-+//     }
-+//     return true;
-+// }
++    auto backlight = board.GetBacklight();
++    if (backlight) {
++        AddTool("self.screen.set_brightness", "Set the brightness of the screen.",
++                PropertyList({Property("brightness", kPropertyTypeInteger, 0, 100)}),
++                [backlight](const PropertyList& properties) -> ReturnValue {
++                    uint8_t brightness =
++                        static_cast<uint8_t>(properties["brightness"].value<int>());
++                    backlight->SetBrightness(brightness, true);
++                    return true;
++                });
+     }
  
- bool Assets::Download(std::string url, std::function<void(int progress, size_t speed)> progress_callback) {
-     ESP_LOGI(TAG, "Downloading new version of assets from %s", url.c_str());
-diff --git a/main/assets.h b/main/assets.h
-index 3692e0c..7bfbc5c 100644
---- a/main/assets.h
-+++ b/main/assets.h
-@@ -68,13 +68,13 @@ private:
-         bool checksum_valid_ = false;
-     };
-     
--    class EmoteStrategy : public AssetStrategy {
--    public:
--        bool Apply(Assets* assets) override;
--        bool InitializePartition(Assets* assets) override;
--        void UnApplyPartition(Assets* assets) override;
--        bool GetAssetData(Assets* assets, const std::string& name, void*& ptr, size_t& size) override;
--    };
-+    // class EmoteStrategy : public AssetStrategy {
-+    // public:
-+    //     bool Apply(Assets* assets) override;
-+    //     bool InitializePartition(Assets* assets) override;
-+    //     void UnApplyPartition(Assets* assets) override;
-+    //     bool GetAssetData(Assets* assets, const std::string& name, void*& ptr, size_t& size) override;
-+    // };
-     
-     // Strategy instance
-     std::unique_ptr<AssetStrategy> strategy_;
-diff --git a/main/boards/common/i2c_device.cc b/main/boards/common/i2c_device.cc
-index 835997d..ea50d51 100644
---- a/main/boards/common/i2c_device.cc
-+++ b/main/boards/common/i2c_device.cc
-@@ -32,4 +32,8 @@ uint8_t I2cDevice::ReadReg(uint8_t reg) {
+ #ifdef HAVE_LVGL
+     auto display = board.GetDisplay();
+     if (display && display->GetTheme() != nullptr) {
+         AddTool("self.screen.set_theme",
+-            "Set the theme of the screen. The theme can be `light` or `dark`.",
+-            PropertyList({
+-                Property("theme", kPropertyTypeString)
+-            }),
+-            [display](const PropertyList& properties) -> ReturnValue {
+-                auto theme_name = properties["theme"].value<std::string>();
+-                auto& theme_manager = LvglThemeManager::GetInstance();
+-                auto theme = theme_manager.GetTheme(theme_name);
+-                if (theme != nullptr) {
+-                    display->SetTheme(theme);
+-                    return true;
+-                }
+-                return false;
+-            });
++                "Set the theme of the screen. The theme can be `light` or `dark`.",
++                PropertyList({Property("theme", kPropertyTypeString)}),
++                [display](const PropertyList& properties) -> ReturnValue {
++                    auto theme_name = properties["theme"].value<std::string>();
++                    auto& theme_manager = LvglThemeManager::GetInstance();
++                    auto theme = theme_manager.GetTheme(theme_name);
++                    if (theme != nullptr) {
++                        display->SetTheme(theme);
++                        return true;
++                    }
++                    return false;
++                });
+     }
  
- void I2cDevice::ReadRegs(uint8_t reg, uint8_t* buffer, size_t length) {
-     ESP_ERROR_CHECK(i2c_master_transmit_receive(i2c_device_, &reg, 1, buffer, length, 100));
-+}
+     auto camera = board.GetCamera();
+     if (camera) {
+         AddTool("self.camera.take_photo",
+-            "Always remember you have a camera. If the user asks you to see something, use this tool to take a photo and then explain it.\n"
+-            "Args:\n"
+-            "  `question`: The question that you want to ask about the photo.\n"
+-            "Return:\n"
+-            "  A JSON object that provides the photo information.",
+-            PropertyList({
+-                Property("question", kPropertyTypeString)
+-            }),
+-            [camera](const PropertyList& properties) -> ReturnValue {
+-                // Lower the priority to do the camera capture
+-                TaskPriorityReset priority_reset(1);
+-
+-                if (!camera->Capture()) {
+-                    throw std::runtime_error("Failed to capture photo");
+-                }
+-                auto question = properties["question"].value<std::string>();
+-                return camera->Explain(question);
+-            });
++                "Always remember you have a camera. If the user asks you to see something, use "
++                "this tool to take a photo and then explain it.\n"
++                "Args:\n"
++                "  `question`: The question that you want to ask about the photo.\n"
++                "Return:\n"
++                "  A JSON object that provides the photo information.",
++                PropertyList({Property("question", kPropertyTypeString)}),
++                [camera](const PropertyList& properties) -> ReturnValue {
++                    // Lower the priority to do the camera capture
++                    TaskPriorityReset priority_reset(1);
 +
-+esp_err_t I2cDevice::TryReadRegs(uint8_t reg, uint8_t* buffer, size_t length, int timeout_ms) {
-+    return i2c_master_transmit_receive(i2c_device_, &reg, 1, buffer, length, timeout_ms);
++                    if (!camera->Capture()) {
++                        throw std::runtime_error("Failed to capture photo");
++                    }
++                    auto question = properties["question"].value<std::string>();
++                    return camera->Explain(question);
++                });
+     }
+ #endif
+ 
+@@ -127,71 +122,52 @@ void McpServer::AddCommonTools() {
+ 
+ void McpServer::AddUserOnlyTools() {
+     // System tools
+-    AddUserOnlyTool("self.get_system_info",
+-        "Get the system information",
+-        PropertyList(),
+-        [this](const PropertyList& properties) -> ReturnValue {
+-            auto& board = Board::GetInstance();
+-            return board.GetSystemInfoJson();
+-        });
+-
+-    AddUserOnlyTool("self.reboot", "Reboot the system",
+-        PropertyList(),
+-        [this](const PropertyList& properties) -> ReturnValue {
+-            auto& app = Application::GetInstance();
+-            app.Schedule([&app]() {
+-                ESP_LOGW(TAG, "User requested reboot");
+-                vTaskDelay(pdMS_TO_TICKS(1000));
+-
+-                app.Reboot();
+-            });
+-            return true;
+-        });
+-
+-    // Firmware upgrade
+-    AddUserOnlyTool("self.upgrade_firmware", "Upgrade firmware from a specific URL. This will download and install the firmware, then reboot the device.",
+-        PropertyList({
+-            Property("url", kPropertyTypeString, "The URL of the firmware binary file to download and install")
+-        }),
+-        [this](const PropertyList& properties) -> ReturnValue {
+-            auto url = properties["url"].value<std::string>();
+-            ESP_LOGI(TAG, "User requested firmware upgrade from URL: %s", url.c_str());
+-            
+-            auto& app = Application::GetInstance();
+-            app.Schedule([url, &app]() {
+-                bool success = app.UpgradeFirmware(url);
+-                if (!success) {
+-                    ESP_LOGE(TAG, "Firmware upgrade failed");
+-                }
+-            });
+-            
+-            return true;
+-        });
++    AddUserOnlyTool("self.get_system_info", "Get the system information", PropertyList(),
++                    [this](const PropertyList& properties) -> ReturnValue {
++                        auto& board = Board::GetInstance();
++                        return board.GetSystemInfoJson();
++                    });
++
++    AddUserOnlyTool("self.reboot", "Reboot the system", PropertyList(),
++                    [this](const PropertyList& properties) -> ReturnValue {
++                        auto& app = Application::GetInstance();
++                        app.Schedule([&app]() {
++                            ESP_LOGW(TAG, "User requested reboot");
++                            vTaskDelay(pdMS_TO_TICKS(1000));
++
++                            app.Reboot();
++                        });
++                        return true;
++                    });
++
++    // Firmware upgrade: the "self.upgrade_firmware" tool is intentionally not registered
++    // in this custom build. It let the remote side install firmware from an arbitrary URL,
++    // which would silently replace this firmware. Not exposing the tool means the device
++    // never advertises it and cannot be asked to perform an upgrade.
+ 
+     // Display control
+ #ifdef HAVE_LVGL
+     auto display = dynamic_cast<LvglDisplay*>(Board::GetInstance().GetDisplay());
+     if (display) {
+-        AddUserOnlyTool("self.screen.get_info", "Information about the screen, including width, height, etc.",
+-            PropertyList(),
+-            [display](const PropertyList& properties) -> ReturnValue {
+-                cJSON *json = cJSON_CreateObject();
+-                cJSON_AddNumberToObject(json, "width", display->width());
+-                cJSON_AddNumberToObject(json, "height", display->height());
+-                if (dynamic_cast<OledDisplay*>(display)) {
+-                    cJSON_AddBoolToObject(json, "monochrome", true);
+-                } else {
+-                    cJSON_AddBoolToObject(json, "monochrome", false);
+-                }
+-                return json;
+-            });
++        AddUserOnlyTool("self.screen.get_info",
++                        "Information about the screen, including width, height, etc.",
++                        PropertyList(), [display](const PropertyList& properties) -> ReturnValue {
++                            cJSON* json = cJSON_CreateObject();
++                            cJSON_AddNumberToObject(json, "width", display->width());
++                            cJSON_AddNumberToObject(json, "height", display->height());
++                            if (dynamic_cast<OledDisplay*>(display)) {
++                                cJSON_AddBoolToObject(json, "monochrome", true);
++                            } else {
++                                cJSON_AddBoolToObject(json, "monochrome", false);
++                            }
++                            return json;
++                        });
+ 
+ #if CONFIG_LV_USE_SNAPSHOT
+-        AddUserOnlyTool("self.screen.snapshot", "Snapshot the screen and upload it to a specific URL",
+-            PropertyList({
+-                Property("url", kPropertyTypeString),
+-                Property("quality", kPropertyTypeInteger, 80, 1, 100)
+-            }),
++        AddUserOnlyTool(
++            "self.screen.snapshot", "Snapshot the screen and upload it to a specific URL",
++            PropertyList({Property("url", kPropertyTypeString),
++                          Property("quality", kPropertyTypeInteger, 80, 1, 100)}),
+             [display](const PropertyList& properties) -> ReturnValue {
+                 auto url = properties["url"].value<std::string>();
+                 auto quality = properties["quality"].value<int>();
+@@ -202,10 +178,10 @@ void McpServer::AddUserOnlyTools() {
+                 }
+ 
+                 ESP_LOGI(TAG, "Upload snapshot %u bytes to %s", jpeg_data.size(), url.c_str());
+-                
++
+                 // 构造multipart/form-data请求体
+                 std::string boundary = "----ESP32_SCREEN_SNAPSHOT_BOUNDARY";
+-                
++
+                 auto http = Board::GetInstance().GetNetwork()->CreateHttp(3);
+                 http->SetHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+                 if (!http->Open("POST", url)) {
+@@ -215,7 +191,9 @@ void McpServer::AddUserOnlyTools() {
+                     // 文件字段头部
+                     std::string file_header;
+                     file_header += "--" + boundary + "\r\n";
+-                    file_header += "Content-Disposition: form-data; name=\"file\"; filename=\"screenshot.jpg\"\r\n";
++                    file_header +=
++                        "Content-Disposition: form-data; name=\"file\"; "
++                        "filename=\"screenshot.jpg\"\r\n";
+                     file_header += "Content-Type: image/jpeg\r\n";
+                     file_header += "\r\n";
+                     http->Write(file_header.c_str(), file_header.size());
+@@ -233,18 +211,18 @@ void McpServer::AddUserOnlyTools() {
+                 http->Write("", 0);
+ 
+                 if (http->GetStatusCode() != 200) {
+-                    throw std::runtime_error("Unexpected status code: " + std::to_string(http->GetStatusCode()));
++                    throw std::runtime_error("Unexpected status code: " +
++                                             std::to_string(http->GetStatusCode()));
+                 }
+                 std::string result = http->ReadAll();
+                 http->Close();
+                 ESP_LOGI(TAG, "Snapshot screen result: %s", result.c_str());
+                 return true;
+             });
+-        
+-        AddUserOnlyTool("self.screen.preview_image", "Preview an image on the screen",
+-            PropertyList({
+-                Property("url", kPropertyTypeString)
+-            }),
++
++        AddUserOnlyTool(
++            "self.screen.preview_image", "Preview an image on the screen",
++            PropertyList({Property("url", kPropertyTypeString)}),
+             [display](const PropertyList& properties) -> ReturnValue {
+                 auto url = properties["url"].value<std::string>();
+                 auto http = Board::GetInstance().GetNetwork()->CreateHttp(3);
+@@ -254,7 +232,8 @@ void McpServer::AddUserOnlyTools() {
+                 }
+                 int status_code = http->GetStatusCode();
+                 if (status_code != 200) {
+-                    throw std::runtime_error("Unexpected status code: " + std::to_string(status_code));
++                    throw std::runtime_error("Unexpected status code: " +
++                                             std::to_string(status_code));
+                 }
+ 
+                 size_t content_length = http->GetBodyLength();
+@@ -280,29 +259,29 @@ void McpServer::AddUserOnlyTools() {
+                 display->SetPreviewImage(std::move(image));
+                 return true;
+             });
+-#endif // CONFIG_LV_USE_SNAPSHOT
++#endif  // CONFIG_LV_USE_SNAPSHOT
+     }
+-#endif // HAVE_LVGL
++#endif  // HAVE_LVGL
+ 
+     // Assets download url
+     auto& assets = Assets::GetInstance();
+     if (assets.partition_valid()) {
+         AddUserOnlyTool("self.assets.set_download_url", "Set the download url for the assets",
+-            PropertyList({
+-                Property("url", kPropertyTypeString)
+-            }),
+-            [](const PropertyList& properties) -> ReturnValue {
+-                auto url = properties["url"].value<std::string>();
+-                Settings settings("assets", true);
+-                settings.SetString("download_url", url);
+-                return true;
+-            });
++                        PropertyList({Property("url", kPropertyTypeString)}),
++                        [](const PropertyList& properties) -> ReturnValue {
++                            auto url = properties["url"].value<std::string>();
++                            Settings settings("assets", true);
++                            settings.SetString("download_url", url);
++                            return true;
++                        });
+     }
  }
-\ No newline at end of file
-diff --git a/main/boards/common/i2c_device.h b/main/boards/common/i2c_device.h
-index 7bc917b..874b137 100644
---- a/main/boards/common/i2c_device.h
-+++ b/main/boards/common/i2c_device.h
-@@ -13,6 +13,7 @@ protected:
-     void WriteReg(uint8_t reg, uint8_t value);
-     uint8_t ReadReg(uint8_t reg);
-     void ReadRegs(uint8_t reg, uint8_t* buffer, size_t length);
-+    esp_err_t TryReadRegs(uint8_t reg, uint8_t* buffer, size_t length, int timeout_ms = 100);
- };
  
- #endif // I2C_DEVICE_H
+ void McpServer::AddTool(McpTool* tool) {
+     // Prevent adding duplicate tools
+-    if (std::find_if(tools_.begin(), tools_.end(), [tool](const McpTool* t) { return t->name() == tool->name(); }) != tools_.end()) {
++    if (std::find_if(tools_.begin(), tools_.end(), [tool](const McpTool* t) {
++            return t->name() == tool->name();
++        }) != tools_.end()) {
+         ESP_LOGW(TAG, "Tool %s already added", tool->name().c_str());
+         return;
+     }
+@@ -311,11 +290,15 @@ void McpServer::AddTool(McpTool* tool) {
+     tools_.push_back(tool);
+ }
+ 
+-void McpServer::AddTool(const std::string& name, const std::string& description, const PropertyList& properties, std::function<ReturnValue(const PropertyList&)> callback) {
++void McpServer::AddTool(const std::string& name, const std::string& description,
++                        const PropertyList& properties,
++                        std::function<ReturnValue(const PropertyList&)> callback) {
+     AddTool(new McpTool(name, description, properties, callback));
+ }
+ 
+-void McpServer::AddUserOnlyTool(const std::string& name, const std::string& description, const PropertyList& properties, std::function<ReturnValue(const PropertyList&)> callback) {
++void McpServer::AddUserOnlyTool(const std::string& name, const std::string& description,
++                                const PropertyList& properties,
++                                std::function<ReturnValue(const PropertyList&)> callback) {
+     auto tool = new McpTool(name, description, properties, callback);
+     tool->set_user_only(true);
+     AddTool(tool);
+@@ -353,23 +336,24 @@ void McpServer::ParseCapabilities(const cJSON* capabilities) {
+ void McpServer::ParseMessage(const cJSON* json) {
+     // Check JSONRPC version
+     auto version = cJSON_GetObjectItem(json, "jsonrpc");
+-    if (version == nullptr || !cJSON_IsString(version) || strcmp(version->valuestring, "2.0") != 0) {
++    if (version == nullptr || !cJSON_IsString(version) ||
++        strcmp(version->valuestring, "2.0") != 0) {
+         ESP_LOGE(TAG, "Invalid JSONRPC version: %s", version ? version->valuestring : "null");
+         return;
+     }
+-    
++
+     // Check method
+     auto method = cJSON_GetObjectItem(json, "method");
+     if (method == nullptr || !cJSON_IsString(method)) {
+         ESP_LOGE(TAG, "Missing method");
+         return;
+     }
+-    
++
+     auto method_str = std::string(method->valuestring);
+     if (method_str.find("notifications") == 0) {
+         return;
+     }
+-    
++
+     // Check params
+     auto params = cJSON_GetObjectItem(json, "params");
+     if (params != nullptr && !cJSON_IsObject(params)) {
+@@ -383,7 +367,7 @@ void McpServer::ParseMessage(const cJSON* json) {
+         return;
+     }
+     auto id_int = id->valueint;
+-    
++
+     if (method_str == "initialize") {
+         if (cJSON_IsObject(params)) {
+             auto capabilities = cJSON_GetObjectItem(params, "capabilities");
+@@ -392,7 +376,9 @@ void McpServer::ParseMessage(const cJSON* json) {
+             }
+         }
+         auto app_desc = esp_app_get_description();
+-        std::string message = "{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"" BOARD_NAME "\",\"version\":\"";
++        std::string message =
++            "{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{"
++            "\"name\":\"" BOARD_NAME "\",\"version\":\"";
+         message += app_desc->version;
+         message += "\"}}";
+         ReplyResult(id_int, message);
+@@ -455,11 +441,11 @@ void McpServer::ReplyError(int id, const std::string& message) {
+ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_only_tools) {
+     const int max_payload_size = 8000;
+     std::string json = "{\"tools\":[";
+-    
++
+     bool found_cursor = cursor.empty();
+     auto it = tools_.begin();
+     std::string next_cursor = "";
+-    
++
+     while (it != tools_.end()) {
+         // 如果我们还没有找到起始位置，继续搜索
+         if (!found_cursor) {
+@@ -475,7 +461,7 @@ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_o
+             ++it;
+             continue;
+         }
+-        
++
+         // 添加tool前检查大小
+         std::string tool_json = (*it)->to_json() + ",";
+         if (json.length() + tool_json.length() + 30 > max_payload_size) {
+@@ -483,18 +469,19 @@ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_o
+             next_cursor = (*it)->name();
+             break;
+         }
+-        
++
+         json += tool_json;
+         ++it;
+     }
+-    
++
+     if (json.back() == ',') {
+         json.pop_back();
+     }
+-    
++
+     if (json.back() == '[' && !tools_.empty()) {
+         // 如果没有添加任何tool，返回错误
+-        ESP_LOGE(TAG, "tools/list: Failed to add tool %s because of payload size limit", next_cursor.c_str());
++        ESP_LOGE(TAG, "tools/list: Failed to add tool %s because of payload size limit",
++                 next_cursor.c_str());
+         ReplyError(id, "Failed to add tool " + next_cursor + " because of payload size limit");
+         return;
+     }
+@@ -504,16 +491,15 @@ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_o
+     } else {
+         json += "],\"nextCursor\":\"" + next_cursor + "\"}";
+     }
+-    
++
+     ReplyResult(id, json);
+ }
+ 
+ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* tool_arguments) {
+-    auto tool_iter = std::find_if(tools_.begin(), tools_.end(), 
+-                                 [&tool_name](const McpTool* tool) { 
+-                                     return tool->name() == tool_name; 
+-                                 });
+-    
++    auto tool_iter = std::find_if(tools_.begin(), tools_.end(), [&tool_name](const McpTool* tool) {
++        return tool->name() == tool_name;
++    });
++
+     if (tool_iter == tools_.end()) {
+         ESP_LOGE(TAG, "tools/call: Unknown tool: %s", tool_name.c_str());
+         ReplyError(id, "Unknown tool: " + tool_name);

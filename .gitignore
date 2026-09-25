@@ -1,2 +1,8 @@
 .DS_Store
 .idea/
+.vscode/
+
+# Local scratch: serial captures and flash readbacks
+*.bin
+*_boot.txt
+serial_log.txt
